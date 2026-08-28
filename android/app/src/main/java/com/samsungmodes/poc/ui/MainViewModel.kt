@@ -57,7 +57,10 @@ data class MainUiState(
     val inspectedDevice: BleDiscoveredDevice? = null,
     val savedProximityDevice: BleDeviceProfile? = null,
     val activeRssiSnapshot: RssiTracker.RssiSnapshot = RssiTracker.RssiSnapshot(null, 0, null, null, null, null, null, emptyList()),
-    val selectedRssiWindow: RssiTracker.HistoryWindow = RssiTracker.HistoryWindow.WINDOW_30S
+    val selectedRssiWindow: RssiTracker.HistoryWindow = RssiTracker.HistoryWindow.WINDOW_30S,
+
+    // Phase 2 Calibration State
+    val activeProximityProfile: com.samsungmodes.poc.proximity.model.ProximityProfile? = null
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -67,6 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     val bleScanner = BleScanner(application.applicationContext, viewModelScope)
     private val rssiTracker = RssiTracker(maxCapacity = 2000)
+    val calibrationEngine = com.samsungmodes.poc.proximity.CalibrationEngine(viewModelScope)
     
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -99,19 +103,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         readCurrentMode()
 
-        // Observe BLE Scanner state and update RSSI tracker for the tracked device
+        // Observe BLE Scanner state and update RSSI tracker & Calibration Engine for the tracked device
         viewModelScope.launch {
             bleScanner.scannerState.collect { scanState ->
                 _uiState.value = _uiState.value.copy(scannerState = scanState)
 
-                // If a proximity device or inspected device is active, feed RSSI tracker
+                // If a proximity device or inspected device is active, feed RSSI tracker and calibration engine
                 val trackedKey = _uiState.value.savedProximityDevice?.deviceId?.primaryKey
                     ?: _uiState.value.inspectedDevice?.deviceId?.primaryKey
+                    ?: _uiState.value.activeProximityProfile?.targetDeviceId?.primaryKey
 
                 if (trackedKey != null) {
-                    val matchingDevice = scanState.discoveredDevices.find { it.deviceId.primaryKey == trackedKey }
+                    val matchingDevice = scanState.discoveredDevices.find { 
+                        it.deviceId.primaryKey == trackedKey || 
+                        it.address == trackedKey || 
+                        it.name.equals(trackedKey, ignoreCase = true) 
+                    }
                     if (matchingDevice != null) {
                         rssiTracker.addSample(matchingDevice.currentRssi)
+                        calibrationEngine.feedRssiSample(trackedKey, matchingDevice.currentRssi)
                         _uiState.value = _uiState.value.copy(
                             activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
                         )
@@ -119,6 +129,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    // --- Phase 2 Calibration Operations ---
+
+    fun startOutsideCalibration(deviceKey: String, deviceName: String, durationSec: Int = 30) {
+        log("CALIB", "Starting STEP 1: OUTSIDE Calibration for '$deviceName' ($durationSec s)...")
+        calibrationEngine.startOutsideCalibration(deviceKey, deviceName, durationSec)
+    }
+
+    fun startInsideCalibration(durationSec: Int = 30) {
+        log("CALIB", "Starting STEP 2: INSIDE Calibration ($durationSec s)...")
+        calibrationEngine.startInsideCalibration(durationSec)
+    }
+
+    fun saveCalibratedProfile(profile: com.samsungmodes.poc.proximity.model.ProximityProfile) {
+        _uiState.value = _uiState.value.copy(activeProximityProfile = profile)
+        log("CALIB", "PROXIMITY PROFILE SAVED: '${profile.profileName}' [ENTER: ${profile.enterThresholdRssi} dBm, EXIT: ${profile.exitThresholdRssi} dBm, Hysteresis: ${profile.enterThresholdRssi - profile.exitThresholdRssi} dB]")
     }
 
     // --- Phase 1 BLE & RSSI Operations ---

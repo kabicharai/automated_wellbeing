@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DeviceInfo, DeviceProfile, LogEntry, BleDiscoveredDevice, BleScanMode, BleDeviceProfile } from './types';
+import { DeviceInfo, DeviceProfile, LogEntry, BleDiscoveredDevice, BleScanMode, BleDeviceProfile, ProximityProfile } from './types';
 import { DeviceSimulator } from './components/DeviceSimulator';
 import { DiagnosticsInspector } from './components/DiagnosticsInspector';
 import { CodeExplorer } from './components/CodeExplorer';
@@ -7,8 +7,9 @@ import { ArchitectureView } from './components/ArchitectureView';
 import { DocumentationView } from './components/DocumentationView';
 import { BleScannerView } from './components/BleScannerView';
 import { RssiMonitorView } from './components/RssiMonitorView';
+import { CalibrationView } from './components/CalibrationView';
 import { PhaseRoadmapView } from './components/PhaseRoadmapView';
-import { Smartphone, Activity, Code, GitFork, BookOpen, Radio, BarChart3, Shield, Layers } from 'lucide-react';
+import { Smartphone, Activity, Code, GitFork, BookOpen, Radio, BarChart3, Shield, Layers, Sliders } from 'lucide-react';
 
 const DEVICE_PROFILES: Record<DeviceProfile, DeviceInfo> = {
   'galaxy-s23-oneui85': {
@@ -169,26 +170,27 @@ const INITIAL_BLE_DEVICES: BleDiscoveredDevice[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'ble-scanner' | 'rssi-monitor' | 'phases' | 'simulator' | 'diagnostics' | 'code' | 'architecture' | 'docs'
-  >('ble-scanner');
+    'calibration' | 'ble-scanner' | 'rssi-monitor' | 'phases' | 'simulator' | 'diagnostics' | 'code' | 'architecture' | 'docs'
+  >('calibration');
   
   const [currentDeviceId, setCurrentDeviceId] = useState<DeviceProfile>('galaxy-s23-oneui85');
   
-  // Phase 1 BLE state
+  // Phase 1 & 2 Proximity state
   const [isScanning, setIsScanning] = useState<boolean>(true);
   const [scanMode, setScanMode] = useState<BleScanMode>('BALANCED');
   const [discoveredDevices, setDiscoveredDevices] = useState<BleDiscoveredDevice[]>(INITIAL_BLE_DEVICES);
   const [inspectedDevice, setInspectedDevice] = useState<BleDiscoveredDevice | null>(INITIAL_BLE_DEVICES[0]);
   const [savedProximityDevice, setSavedProximityDevice] = useState<BleDeviceProfile | null>({
     id: 'saved-smarttag-bedroom',
-    displayName: 'Samsung Galaxy SmartTag (Bedroom)',
+    displayName: 'Smart Tag (EI-T5300)',
     deviceType: 'SAMSUNG_SMARTTAG_1',
     primaryKey: 'mfg:0x75:010042',
     macAddress: 'E4:7B:A2:18:42:01',
     targetManufacturerId: 0x0075,
     createdAtMillis: Date.now() - 3600000,
-    notes: 'Primary BLE beacon located in master bedroom for focus mode automation',
+    notes: 'Saved SmartTag beacon using advertised name latching',
   });
+  const [activeProximityProfile, setActiveProximityProfile] = useState<ProximityProfile | null>(null);
 
   const [logs, setLogs] = useState<LogEntry[]>([
     {
@@ -301,6 +303,7 @@ export default function App() {
         {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1.5 overflow-x-auto border-t border-neutral-800/80 pt-1">
           {[
+            { id: 'calibration', label: 'Calibration (P2)', icon: Sliders, highlight: true },
             { id: 'ble-scanner', label: 'BLE Scanner (P1)', icon: Radio, highlight: true },
             { id: 'rssi-monitor', label: 'RSSI Monitor (P1)', icon: BarChart3, highlight: true },
             { id: 'phases', label: 'Roadmap & Blueprint', icon: Layers },
@@ -331,6 +334,17 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+        {activeTab === 'calibration' && (
+          <CalibrationView
+            savedDevice={savedProximityDevice}
+            discoveredDevices={discoveredDevices}
+            onSaveProfile={(prof) => {
+              setActiveProximityProfile(prof);
+              handleAddLog('SUCCESS', `Saved Proximity Profile '${prof.profileName}' [ENTER: ${prof.enterThresholdRssi} dBm, EXIT: ${prof.exitThresholdRssi} dBm]`);
+            }}
+            onLog={handleAddLog}
+          />
+        )}
         {activeTab === 'ble-scanner' && (
           <BleScannerView
             discoveredDevices={discoveredDevices}

@@ -94,3 +94,50 @@ export interface BleDeviceProfile {
   createdAtMillis: number;
   notes: string;
 }
+
+export type RssiFilterType = 'EMA' | 'RUNNING_MEDIAN' | 'KALMAN' | 'MOVING_AVERAGE';
+
+export interface RssiDistributionMetrics {
+  sampleCount: number;
+  durationSeconds: number;
+  minRssi: number;
+  maxRssi: number;
+  meanRssi: number;
+  medianRssi: number;
+  standardDeviation: number;
+  p10: number;
+  p25: number;
+  p75: number;
+  p90: number;
+  sampleHistory: number[];
+}
+
+export type SeparationQuality = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'POOR';
+
+export interface ThresholdCalculationResult {
+  suggestedEnterThreshold: number;
+  suggestedExitThreshold: number;
+  medianSeparationDb: number;
+  quality: SeparationQuality;
+  overlapPercentage: number;
+  summaryNotes: string;
+}
+
+export interface ProximityProfile {
+  id: string;
+  profileName: string;
+  targetDeviceKey: string;
+  targetDisplayName: string;
+  insideMetrics: RssiDistributionMetrics | null;
+  outsideMetrics: RssiDistributionMetrics | null;
+  enterThresholdRssi: number;
+  exitThresholdRssi: number;
+  enterDurationSeconds: number;
+  exitDurationSeconds: number;
+  filterType: RssiFilterType;
+  filterSmoothingParam: number;
+  boundSamsungModeUuid: string;
+  isEnabled: boolean;
+  createdAtMillis: number;
+}
+

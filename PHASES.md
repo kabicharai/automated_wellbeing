@@ -32,22 +32,24 @@ This document outlines the sequential phases for building the BLE Proximity → 
 
 ## 📋 Phase Roadmap
 
-### ✅ Phase 1: BLE Scanner, Device Discovery & Live RSSI Monitor (CURRENT PHASE)
-- [ ] **Android BLE Scanner**: Standard `BluetoothLeScanner` implementation with Android 16 permissions (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION`).
-- [ ] **Stable Identity Abstraction (`BleDeviceId`)**: Identify devices flexibly across MAC randomization using manufacturer ID, manufacturer payload, service UUIDs, and device name.
-- [ ] **SmartTag 1 & Generic Beacon Diagnostics**: Raw advertisement inspector (RSSI, manufacturer data, service UUIDs, service data, flags, TX power).
-- [ ] **Proximity Device Selection**: Ability to tap any scanned device and save it as the active Proximity Target (`BleProximityDevice`).
-- [ ] **Live RSSI Monitor & Telemetry**: Real-time graph of RSSI against time with configurable sampling windows (5s, 15s, 30s, 60s, 5m) and sample statistics (Current, Average, Median, Min, Max, Count).
-- [ ] **Web Companion Simulation & UI**: Interactive scanner, live graphing, and raw payload decoder mirroring physical Android capabilities.
+### ✅ Phase 1: BLE Scanner, Device Discovery & Live RSSI Monitor (COMPLETED)
+- [x] **Android BLE Scanner**: Standard `BluetoothLeScanner` implementation with Android 16 permissions (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION`).
+- [x] **Stable Identity Abstraction (`BleDeviceId`)**: Identify devices flexibly across MAC randomization using manufacturer ID, manufacturer payload, service UUIDs, and advertised name latching ("Smart Tag" / "SmartTag").
+- [x] **SmartTag 1 & Generic Beacon Diagnostics**: Raw advertisement inspector (RSSI, manufacturer data, service UUIDs, service data, flags, TX power).
+- [x] **Proximity Device Selection**: Ability to tap any scanned device and save it as the active Proximity Target (`BleProximityDevice`).
+- [x] **Live RSSI Monitor & Telemetry**: Real-time graph of RSSI against time with configurable sampling windows (5s, 15s, 30s, 60s, 5m) and sample statistics (Current, Average, Median, Min, Max, Count).
+- [x] **Web Companion Simulation & UI**: Interactive scanner, live graphing, and raw payload decoder mirroring physical Android capabilities.
 
 ---
 
-### ⏳ Phase 2: RSSI Filtering, Statistical Engine & Dual-Zone Calibration
-- [ ] **Statistical Engine**: Compute median, moving average, exponential moving average (EMA), rolling standard deviation, and percentiles ($p_{10}, p_{25}, p_{75}, p_{90}$).
-- [ ] **Guided 2-Step Calibration**:
-  1. *Step 1 — Outside Calibration* (30s sample collection + distribution curve)
-  2. *Step 2 — Inside Calibration* (30s sample collection + distribution curve)
-- [ ] **Threshold Calculator & Separation Analysis**: Calculate candidate ENTER/EXIT thresholds from distributions; display separation quality (Good / Moderate / Poor) and overlap warnings.
+### ✅ Phase 2: RSSI Filtering, Statistical Engine & Dual-Zone Calibration (CURRENT PHASE)
+- [x] **Statistical Engine**: Compute median, moving average, exponential moving average (EMA), rolling standard deviation, and percentiles ($p_{10}, p_{25}, p_{75}, p_{90}$).
+- [x] **RSSI Filtering Suite**: Configurable filters (`EmaRssiFilter`, `RunningMedianRssiFilter`, `KalmanRssiFilter`, and `MovingAverage`).
+- [x] **Guided 2-Step Calibration Engine (`CalibrationEngine`)**:
+  1. *Step 1 — Outside Calibration* (30s sample collection + distribution curve calculation)
+  2. *Step 2 — Inside Calibration* (30s sample collection + distribution curve calculation)
+- [x] **Threshold Calculator & Separation Analysis (`ThresholdCalculator`)**: Calculate candidate ENTER/EXIT thresholds from distributions; display separation quality (Good / Moderate / Poor) and overlap warnings.
+- [x] **Dual-Zone Calibration UI (`CalibrationTab`)**: Visual distribution comparison canvas, countdown timer, percentile tables, and profile persistence.
 
 ---
 

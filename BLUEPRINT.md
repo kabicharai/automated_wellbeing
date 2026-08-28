@@ -91,7 +91,16 @@ SMARTTAG 1 SUPPORT
 ============================================================
 
 The Samsung SmartTag 1 has already been observed by the user using
-a third-party BLE scanner.
+a third-party BLE scanner and the in-app scanner.
+
+OBSERVED REAL-WORLD BEHAVIOR:
+- SmartTags often appear with the advertised local name "Smart Tag",
+  "SmartTag", "Galaxy SmartTag", or model numbers (EI-T5300, EI-T7300, EI-T5600).
+- The device identification system latches onto the tag using its
+  advertised local name ("Smart Tag" / "SmartTag" / exact user name)
+  combined with its address / privacy signature.
+- This allows deterministic targeting even if proprietary service UUIDs
+  are intermittently advertised.
 
 The application must therefore investigate its actual advertisement
 packets.

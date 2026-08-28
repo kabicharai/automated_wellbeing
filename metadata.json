@@ -1,0 +1,8 @@
+{
+  "name": "Automated Wellbeing",
+  "description": "BLE Proximity-driven Samsung Modes & Routines automation with real-time RSSI monitoring, dual-zone calibration, hysteresis engine, and One UI 8.0/8.5 integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

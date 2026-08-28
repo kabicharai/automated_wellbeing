@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Package Visibility Queries for Android 11+ (API 30+) / Android 16 -->
+    <queries>
+        <!-- Samsung Modes & Routines Package -->
+        <package android:name="com.samsung.android.app.routines" />
+        <provider android:authorities="com.samsung.android.app.routines.externalprovider" />
+        <provider android:authorities="com.samsung.android.app.routines.domainmodel.routinecontentprovider.ExternalRoutineContentProvider" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.CREATE_SHORTCUT" />
+        </intent>
+        <intent>
+            <action android:name="com.samsung.android.app.routines.SHORTCUT" />
+        </intent>
+        <intent>
+            <action android:name="com.samsung.android.app.routines.ACTION_LAUNCH_ROUTINE" />
+        </intent>
+        <intent>
+            <action android:name="com.samsung.android.app.routines.ACTION_RUN_ROUTINE" />
+        </intent>
+    </queries>
+
+    <!-- Samsung Modes & Routines Permissions -->
+    <uses-permission android:name="com.samsung.android.app.routines.permission.READ_ROUTINE_INFO" />
+    <uses-permission android:name="com.samsung.android.app.routines.permission.WRITE_ROUTINE_INFO" />
+    <uses-permission android:name="com.samsung.android.app.routines.permission.ACCESS_ROUTINE_INFO" />
+    <uses-permission android:name="com.samsung.android.app.routines.permission.CONTROL_ROUTINE" />
+    <uses-permission android:name="com.samsung.android.app.routines.permission.LAUNCH_ROUTINE" />
+    <uses-permission android:name="com.samsung.android.app.routines.permission.EXTERNAL_PROVIDER" />
+
+    <!-- General Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@android:drawable/ic_dialog_info"
+        android:label="Samsung Modes POC"
+        android:roundIcon="@android:drawable/ic_dialog_info"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SamsungModesPOC"
+        tools:targetApi="36">
+        
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Samsung Modes POC"
+            android:theme="@style/Theme.SamsungModesPOC">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

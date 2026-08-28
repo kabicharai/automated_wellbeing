@@ -3,6 +3,7 @@ package com.samsungmodes.poc.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.samsungmodes.poc.ble.BlePermissionHelper
 import com.samsungmodes.poc.ble.BleScanner
 import com.samsungmodes.poc.ble.RssiTracker
 import com.samsungmodes.poc.ble.model.BleDeviceProfile
@@ -10,6 +11,8 @@ import com.samsungmodes.poc.ble.model.BleDiscoveredDevice
 import com.samsungmodes.poc.ble.model.BleProximityDevice
 import com.samsungmodes.poc.model.CurrentModeResult
 import com.samsungmodes.poc.model.ModeOperationResult
+import com.samsungmodes.poc.proximity.automation.ProximityAutomationController
+import com.samsungmodes.poc.proximity.storage.ProximityStorageRepository
 import com.samsungmodes.poc.samsung.SamsungCapabilityDetector
 import com.samsungmodes.poc.samsung.SamsungModeController
 import com.samsungmodes.poc.samsung.SamsungPackageInspector
@@ -52,6 +55,17 @@ data class MainUiState(
     val lastOperationResult: ModeOperationResult? = null,
     val logs: List<UiLogEntry> = emptyList(),
     
+    // Runtime Permissions State
+    val permissionStatus: BlePermissionHelper.PermissionStatus = BlePermissionHelper.PermissionStatus(
+        allGranted = false,
+        hasBluetoothScan = false,
+        hasBluetoothConnect = false,
+        hasFineLocation = false,
+        hasCoarseLocation = false,
+        hasNotification = false,
+        missingPermissions = emptyList()
+    ),
+
     // Phase 1 BLE & RSSI State
     val scannerState: BleScanner.ScannerState = BleScanner.ScannerState(),
     val inspectedDevice: BleDiscoveredDevice? = null,
@@ -59,8 +73,13 @@ data class MainUiState(
     val activeRssiSnapshot: RssiTracker.RssiSnapshot = RssiTracker.RssiSnapshot(null, 0, null, null, null, null, null, emptyList()),
     val selectedRssiWindow: RssiTracker.HistoryWindow = RssiTracker.HistoryWindow.WINDOW_30S,
 
-    // Phase 2 Calibration State
-    val activeProximityProfile: com.samsungmodes.poc.proximity.model.ProximityProfile? = null
+    // Phase 2 Calibration State & Per-Device Profiles
+    val activeProximityProfile: com.samsungmodes.poc.proximity.model.ProximityProfile? = null,
+    val savedProfiles: Map<String, com.samsungmodes.poc.proximity.model.ProximityProfile> = emptyMap(),
+    val savedDevices: Map<String, BleDeviceProfile> = emptyMap(),
+
+    // Phase 4 Proximity Automation State
+    val automationState: ProximityAutomationController.AutomationState = ProximityAutomationController.AutomationState()
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -68,10 +87,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val capabilityDetector = SamsungCapabilityDetector(application.applicationContext)
     private var controller: SamsungModeController
     
+    val storageRepository = ProximityStorageRepository(application.applicationContext)
     val bleScanner = BleScanner(application.applicationContext, viewModelScope)
     private val rssiTracker = RssiTracker(maxCapacity = 2000)
     val calibrationEngine = com.samsungmodes.poc.proximity.CalibrationEngine(viewModelScope)
     val proximityEngine = com.samsungmodes.poc.proximity.ProximityEngine(viewModelScope)
+    val automationController: ProximityAutomationController
     
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -81,6 +102,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val detection = capabilityDetector.detectAndCreateController()
         controller = detection.controller
+        automationController = ProximityAutomationController(viewModelScope, proximityEngine, controller)
 
         val r = detection.report
         _uiState.value = _uiState.value.copy(
@@ -94,6 +116,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isSupported = controller.isSupported(),
             report = r
         )
+
+        // Check runtime permissions
+        checkPermissions()
+
+        // Load Persistent Data (Saved Devices, Per-Device Profiles, Automation Config)
+        loadPersistentStorage()
 
         log("SYSTEM", "Initialized Samsung Modes Controller POC on ${_uiState.value.deviceModel}")
         log("DETECT", detection.rationale)
@@ -109,7 +137,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             bleScanner.scannerState.collect { scanState ->
                 _uiState.value = _uiState.value.copy(scannerState = scanState)
 
-                // If a proximity device or inspected device is active, feed RSSI tracker, calibration engine & proximity engine
                 val trackedKey = _uiState.value.savedProximityDevice?.deviceId?.primaryKey
                     ?: _uiState.value.inspectedDevice?.deviceId?.primaryKey
                     ?: _uiState.value.activeProximityProfile?.targetDeviceId?.primaryKey
@@ -138,6 +165,131 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 log("PROX", "[${ev.fromState} → ${ev.toState}] ${ev.reason}")
             }
         }
+
+        // Observe Automation Controller state & audit logs
+        viewModelScope.launch {
+            automationController.automationState.collect { autoState ->
+                _uiState.value = _uiState.value.copy(automationState = autoState)
+            }
+        }
+
+        viewModelScope.launch {
+            automationController.auditEvents.collect { audit ->
+                log("AUTO", "[${audit.action}] ${audit.message}")
+            }
+        }
+    }
+
+    fun checkPermissions() {
+        val status = BlePermissionHelper.checkPermissionStatus(getApplication<Application>().applicationContext)
+        _uiState.value = _uiState.value.copy(permissionStatus = status)
+        if (!status.allGranted) {
+            log("PERM", "Missing permissions: ${status.missingPermissions.joinToString(", ")}")
+        } else {
+            log("PERM", "All required Bluetooth and Location permissions GRANTED.")
+        }
+    }
+
+    private fun loadPersistentStorage() {
+        val savedDevs = storageRepository.getAllSavedDevices()
+        val savedProfs = storageRepository.getAllProximityProfiles()
+        val masterEnabled = storageRepository.isMasterAutomationEnabled()
+        val targetModeUuid = storageRepository.getTargetModeUuid()
+        val pauseUntil = storageRepository.getPauseUntilMillis()
+        val activeDevKey = storageRepository.getActiveDeviceKey()
+
+        val activeProfile = if (activeDevKey != null) savedProfs[activeDevKey] else savedProfs.values.firstOrNull()
+        val activeDevice = if (activeDevKey != null) savedDevs[activeDevKey] else savedDevs.values.firstOrNull()
+
+        _uiState.value = _uiState.value.copy(
+            savedDevices = savedDevs,
+            savedProfiles = savedProfs,
+            savedProximityDevice = activeDevice,
+            activeProximityProfile = activeProfile,
+            modeUuid = if (_uiState.value.modeUuid.isBlank() && targetModeUuid.isNotBlank()) targetModeUuid else _uiState.value.modeUuid
+        )
+
+        if (activeProfile != null) {
+            proximityEngine.updateProfile(activeProfile)
+        }
+
+        if (targetModeUuid.isNotBlank()) {
+            automationController.setTargetModeUuid(targetModeUuid, activeProfile?.profileName ?: "Target Mode")
+        }
+        automationController.setMasterEnabled(masterEnabled)
+        if (pauseUntil > System.currentTimeMillis()) {
+            val remainMin = ((pauseUntil - System.currentTimeMillis()) / 60000).toInt().coerceAtLeast(1)
+            automationController.pauseAutomation(remainMin)
+        }
+
+        log("STORAGE", "Loaded ${savedDevs.size} saved BLE devices and ${savedProfs.size} per-device calibration profiles from persistent storage.")
+    }
+
+    // --- Phase 4 Automation Operations ---
+
+    fun toggleMasterAutomation(enabled: Boolean) {
+        automationController.setMasterEnabled(enabled)
+        storageRepository.setMasterAutomationEnabled(enabled)
+        log("AUTO", "Master Automation ${if (enabled) "ENABLED" else "DISABLED"}")
+    }
+
+    fun setAutomationTargetMode(uuid: String, modeName: String = "Selected Mode") {
+        automationController.setTargetModeUuid(uuid, modeName)
+        storageRepository.setTargetModeUuid(uuid)
+        _uiState.value = _uiState.value.copy(modeUuid = uuid)
+        log("AUTO", "Bound target Samsung Mode UUID to: $uuid ($modeName)")
+    }
+
+    fun pauseAutomation(durationMinutes: Int = 0) {
+        automationController.pauseAutomation(durationMinutes)
+        val pauseUntil = if (durationMinutes > 0) System.currentTimeMillis() + (durationMinutes * 60000L) else 0L
+        storageRepository.setPauseUntilMillis(pauseUntil)
+    }
+
+    fun resumeAutomation() {
+        automationController.resumeAutomation()
+        storageRepository.setPauseUntilMillis(0L)
+    }
+
+    fun emergencyStopAutomation() {
+        automationController.emergencyStop()
+        storageRepository.setMasterAutomationEnabled(false)
+        log("WARN", "EMERGENCY STOP TRIGGERED: Mode stopped and automation disabled.")
+    }
+
+    fun reconcileAutomation() {
+        automationController.reconcileStateWithCurrentProximity()
+        log("AUTO", "Manual state reconcile initiated.")
+    }
+
+    fun selectDeviceProfile(deviceKey: String) {
+        val prof = _uiState.value.savedProfiles[deviceKey]
+        val dev = _uiState.value.savedDevices[deviceKey]
+        storageRepository.setActiveDeviceKey(deviceKey)
+        _uiState.value = _uiState.value.copy(
+            activeProximityProfile = prof,
+            savedProximityDevice = dev
+        )
+        if (prof != null) {
+            proximityEngine.updateProfile(prof)
+            log("PROFILE", "Activated per-device calibration profile for: ${prof.targetDisplayName} (ENTER: ${prof.enterThresholdRssi} dBm, EXIT: ${prof.exitThresholdRssi} dBm)")
+        }
+    }
+
+    fun resetAllData() {
+        storageRepository.resetAllData()
+        bleScanner.clearDevices()
+        rssiTracker.clear()
+        _uiState.value = _uiState.value.copy(
+            savedDevices = emptyMap(),
+            savedProfiles = emptyMap(),
+            savedProximityDevice = null,
+            activeProximityProfile = null,
+            inspectedDevice = null,
+            activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
+        )
+        automationController.setMasterEnabled(false)
+        log("STORAGE", "FACTORY RESET COMPLETE: All saved devices, calibration profiles, and automation preferences deleted.")
     }
 
     // --- Phase 2 Calibration Operations ---
@@ -153,14 +305,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveCalibratedProfile(profile: com.samsungmodes.poc.proximity.model.ProximityProfile) {
-        _uiState.value = _uiState.value.copy(activeProximityProfile = profile)
+        storageRepository.saveProximityProfile(profile)
+        storageRepository.setActiveDeviceKey(profile.targetDeviceId.primaryKey)
+        val updatedProfiles = _uiState.value.savedProfiles.toMutableMap()
+        updatedProfiles[profile.targetDeviceId.primaryKey] = profile
+
+        _uiState.value = _uiState.value.copy(
+            activeProximityProfile = profile,
+            savedProfiles = updatedProfiles
+        )
         proximityEngine.updateProfile(profile)
-        log("CALIB", "PROXIMITY PROFILE SAVED: '${profile.profileName}' [ENTER: ${profile.enterThresholdRssi} dBm, EXIT: ${profile.exitThresholdRssi} dBm, Hysteresis: ${profile.enterThresholdRssi - profile.exitThresholdRssi} dB]")
+        log("CALIB", "PER-DEVICE CALIBRATION SAVED: '${profile.profileName}' for device ${profile.targetDisplayName} [ENTER: ${profile.enterThresholdRssi} dBm, EXIT: ${profile.exitThresholdRssi} dBm]")
     }
 
     // --- Phase 1 BLE & RSSI Operations ---
 
     fun startBleScan() {
+        val status = BlePermissionHelper.checkPermissionStatus(getApplication<Application>().applicationContext)
+        if (!status.allGranted) {
+            log("WARN", "Cannot start scan: Missing permissions (${status.missingPermissions.joinToString(", ")}). Grant permissions first.")
+            return
+        }
         log("BLE", "Starting BLE Scan (Mode: ${_uiState.value.scannerState.scanMode.displayName})...")
         val started = bleScanner.startScan()
         if (started) {
@@ -197,7 +362,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
         )
-        log("BLE", "Inspecting BLE Device: ${device.name} (${device.formattedAddress}) [RSSI: ${device.currentRssi} dBm]")
+
+        // Check if this device already has a saved calibration profile
+        val existingProfile = _uiState.value.savedProfiles[device.deviceId.primaryKey]
+        if (existingProfile != null) {
+            _uiState.value = _uiState.value.copy(activeProximityProfile = existingProfile)
+            proximityEngine.updateProfile(existingProfile)
+            log("BLE", "Inspecting ${device.name}. Loaded saved per-device calibration profile: [ENTER: ${existingProfile.enterThresholdRssi} dBm, EXIT: ${existingProfile.exitThresholdRssi} dBm]")
+        } else {
+            log("BLE", "Inspecting BLE Device: ${device.name} (${device.formattedAddress}) [RSSI: ${device.currentRssi} dBm]")
+        }
     }
 
     fun saveAsProximityDevice(device: BleDiscoveredDevice) {
@@ -216,7 +390,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             targetManufacturerId = device.deviceId.manufacturerId
         )
 
-        _uiState.value = _uiState.value.copy(savedProximityDevice = profile)
+        storageRepository.saveBleDevice(profile)
+        storageRepository.setActiveDeviceKey(profile.deviceId.primaryKey)
+        val updatedDevices = _uiState.value.savedDevices.toMutableMap()
+        updatedDevices[profile.deviceId.primaryKey] = profile
+
+        _uiState.value = _uiState.value.copy(
+            savedProximityDevice = profile,
+            savedDevices = updatedDevices
+        )
         log("BLE", "SAVED PROXIMITY DEVICE: ${profile.displayName} [Type: ${profile.deviceType}, Key: ${profile.deviceId.primaryKey}]")
     }
 

@@ -21,6 +21,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.samsungmodes.poc.ble.BlePermissionHelper
+import com.samsungmodes.poc.ui.ble.AutomationTab
 import com.samsungmodes.poc.ui.ble.BleScannerTab
 import com.samsungmodes.poc.ui.ble.RssiMonitorTab
 import com.samsungmodes.poc.ui.ble.CalibrationTab
@@ -28,11 +32,12 @@ import com.samsungmodes.poc.ui.ble.ProximityStateTab
 import com.samsungmodes.poc.ui.ble.RoadmapTab
 
 enum class AppTab(val title: String) {
-    SAMSUNG_MODES("Modes"),
-    BLE_SCANNER("BLE"),
-    RSSI_MONITOR("RSSI"),
-    CALIBRATION("Calibrate"),
+    AUTOMATION("Auto"),
     PROXIMITY("Proximity"),
+    CALIBRATION("Calibrate"),
+    RSSI_MONITOR("RSSI"),
+    BLE_SCANNER("BLE"),
+    SAMSUNG_MODES("Modes"),
     ROADMAP("Roadmap")
 }
 
@@ -46,7 +51,21 @@ fun SamsungModesScreen(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    var selectedTab by remember { mutableStateOf(AppTab.PROXIMITY) }
+    var selectedTab by remember { mutableStateOf(AppTab.AUTOMATION) }
+
+    // Interactive Runtime Permission Request Launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        viewModel.checkPermissions()
+    }
+
+    // Auto-prompt runtime permissions on initial launch if not yet granted
+    LaunchedEffect(Unit) {
+        if (!state.permissionStatus.allGranted) {
+            permissionLauncher.launch(BlePermissionHelper.getRequiredPermissions())
+        }
+    }
 
     // Auto scroll logs to bottom when new logs arrive
     LaunchedEffect(state.logs.size) {
@@ -66,7 +85,7 @@ fun SamsungModesScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            "Phase 3: Proximity Engine & Anti-Flapping State Machine",
+                            "Phase 4: Proximity Automation & Samsung Modes Dispatcher",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -94,11 +113,12 @@ fun SamsungModesScreen(
                         onClick = { selectedTab = tab },
                         icon = {
                             when (tab) {
-                                AppTab.SAMSUNG_MODES -> Icon(Icons.Default.Settings, contentDescription = null)
-                                AppTab.BLE_SCANNER -> Icon(Icons.Default.Search, contentDescription = null)
-                                AppTab.RSSI_MONITOR -> Icon(Icons.Default.Timeline, contentDescription = null)
-                                AppTab.CALIBRATION -> Icon(Icons.Default.Tune, contentDescription = null)
+                                AppTab.AUTOMATION -> Icon(Icons.Default.SmartToy, contentDescription = null)
                                 AppTab.PROXIMITY -> Icon(Icons.Default.Sensors, contentDescription = null)
+                                AppTab.CALIBRATION -> Icon(Icons.Default.Tune, contentDescription = null)
+                                AppTab.RSSI_MONITOR -> Icon(Icons.Default.Timeline, contentDescription = null)
+                                AppTab.BLE_SCANNER -> Icon(Icons.Default.Search, contentDescription = null)
+                                AppTab.SAMSUNG_MODES -> Icon(Icons.Default.Settings, contentDescription = null)
                                 AppTab.ROADMAP -> Icon(Icons.Default.List, contentDescription = null)
                             }
                         },
@@ -121,6 +141,33 @@ fun SamsungModesScreen(
                     .fillMaxWidth()
             ) {
                 when (selectedTab) {
+                    AppTab.AUTOMATION -> {
+                        val proxSnapshot by viewModel.proximityEngine.snapshot.collectAsState()
+                        AutomationTab(
+                            automationState = state.automationState,
+                            proximityState = proxSnapshot.state,
+                            filteredRssi = proxSnapshot.filteredRssi,
+                            confidencePercent = proxSnapshot.confidencePercent,
+                            activeProfile = state.activeProximityProfile,
+                            savedProfiles = state.savedProfiles,
+                            savedDevices = state.savedDevices,
+                            permissionStatus = state.permissionStatus,
+                            onRequestPermissions = {
+                                permissionLauncher.launch(BlePermissionHelper.getRequiredPermissions())
+                            },
+                            onOpenSettings = {
+                                context.startActivity(BlePermissionHelper.openAppSettingsIntent(context))
+                            },
+                            onToggleMaster = { viewModel.toggleMasterAutomation(it) },
+                            onSetModeUuid = { viewModel.setAutomationTargetMode(it) },
+                            onPause = { viewModel.pauseAutomation(it) },
+                            onResume = { viewModel.resumeAutomation() },
+                            onEmergencyStop = { viewModel.emergencyStopAutomation() },
+                            onReconcile = { viewModel.reconcileAutomation() },
+                            onSelectDeviceProfile = { viewModel.selectDeviceProfile(it) },
+                            onResetAllData = { viewModel.resetAllData() }
+                        )
+                    }
                     AppTab.BLE_SCANNER -> BleScannerTab(viewModel = viewModel)
                     AppTab.RSSI_MONITOR -> RssiMonitorTab(viewModel = viewModel)
                     AppTab.CALIBRATION -> CalibrationTab(viewModel = viewModel)

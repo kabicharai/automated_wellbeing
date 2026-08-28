@@ -23,7 +23,7 @@ export interface DeviceInfo {
 export interface LogEntry {
   id: string;
   timestamp: string;
-  level: 'SYSTEM' | 'DETECT' | 'DIAG' | 'ACTION' | 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR' | 'TEST' | 'QUERY' | 'BLE';
+  level: 'SYSTEM' | 'DETECT' | 'DIAG' | 'ACTION' | 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR' | 'TEST' | 'QUERY' | 'BLE' | 'AUTO';
   message: string;
 }
 
@@ -174,5 +174,56 @@ export interface ProximityEngineSnapshot {
   profileName: string;
   recentEvents: ProximityTransitionEvent[];
 }
+
+// --- Phase 4: Proximity Automation & Samsung Modes Dispatcher ---
+
+export interface RuntimePermissionStatus {
+  allGranted: boolean;
+  hasBluetoothScan: boolean;
+  hasBluetoothConnect: boolean;
+  hasFineLocation: boolean;
+  hasCoarseLocation: boolean;
+  hasNotification: boolean;
+  missingPermissions: string[];
+}
+
+export type AutomationExecutionState =
+  | 'DISABLED'
+  | 'IDLE'
+  | 'TRIGGERING_START'
+  | 'START_SUCCESS'
+  | 'TRIGGERING_STOP'
+  | 'STOP_SUCCESS'
+  | 'PAUSED'
+  | 'RETRYING'
+  | 'ERROR';
+
+export interface AutomationState {
+  masterEnabled: boolean;
+  targetModeUuid: string;
+  targetModeName: string;
+  isPaused: boolean;
+  pauseUntilMillis: number;
+  executionState: AutomationExecutionState;
+  lastTriggeredTransition: string;
+  lastActionTimestampMillis: number;
+  lastResultDetails: string;
+  retryCount: number;
+  totalTransitionsHandled: number;
+  successfulInvocations: number;
+  failedInvocations: number;
+}
+
+export interface AutomationAuditEvent {
+  id: string;
+  timestampMillis: number;
+  action: string;
+  fromState: ProximityState;
+  toState: ProximityState;
+  targetUuid: string;
+  success: boolean;
+  message: string;
+}
+
 
 

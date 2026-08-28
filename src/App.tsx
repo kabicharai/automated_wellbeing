@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { DeviceInfo, DeviceProfile, LogEntry, BleDiscoveredDevice, BleScanMode, BleDeviceProfile, ProximityProfile } from './types';
+import {
+  DeviceInfo,
+  DeviceProfile,
+  LogEntry,
+  BleDiscoveredDevice,
+  BleScanMode,
+  BleDeviceProfile,
+  ProximityProfile,
+  AutomationState,
+  AutomationAuditEvent,
+  RuntimePermissionStatus,
+  ProximityState,
+} from './types';
 import { DeviceSimulator } from './components/DeviceSimulator';
 import { DiagnosticsInspector } from './components/DiagnosticsInspector';
 import { CodeExplorer } from './components/CodeExplorer';
@@ -9,8 +21,22 @@ import { BleScannerView } from './components/BleScannerView';
 import { RssiMonitorView } from './components/RssiMonitorView';
 import { CalibrationView } from './components/CalibrationView';
 import { ProximityStateView } from './components/ProximityStateView';
+import { AutomationControllerView } from './components/AutomationControllerView';
 import { PhaseRoadmapView } from './components/PhaseRoadmapView';
-import { Smartphone, Activity, Code, GitFork, BookOpen, Radio, BarChart3, Shield, Layers, Sliders, Radar } from 'lucide-react';
+import {
+  Smartphone,
+  Activity,
+  Code,
+  GitFork,
+  BookOpen,
+  Radio,
+  BarChart3,
+  Shield,
+  Layers,
+  Sliders,
+  Radar,
+  Zap,
+} from 'lucide-react';
 
 const DEVICE_PROFILES: Record<DeviceProfile, DeviceInfo> = {
   'galaxy-s23-oneui85': {
@@ -144,54 +170,141 @@ const INITIAL_BLE_DEVICES: BleDiscoveredDevice[] = [
       timestampNanos: Date.now() * 1000000,
     },
   },
-  {
-    primaryKey: 'name:Eddystone-UID',
-    name: 'Eddystone-UID Beacon (Hallway)',
-    address: 'D4:8A:22:90:11:77',
-    currentRssi: -82,
-    firstSeenMillis: Date.now() - 60000,
-    lastSeenMillis: Date.now() - 2500,
-    totalSamples: 42,
-    isSmartTagCandidate: false,
-    advertisement: {
-      advertiseFlags: 0x06,
-      txPowerLevel: -10,
-      manufacturerDataMap: {},
-      serviceUuids: ['0000feaa-0000-1000-8000-00805f9b34fb'],
-      serviceDataMap: {
-        '0000feaa-0000-1000-8000-00805f9b34fb': '00 EE 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 00 00',
-      },
-      rawBytesHex: '0201060303AAFE1716AAFE00EE0102030405060708090A0B0C0D0E0F0000',
-      isConnectable: false,
-      primaryPhy: 'LE 1M',
-      timestampNanos: Date.now() * 1000000,
-    },
-  },
 ];
+
+const STORAGE_KEYS = {
+  PROFILES: 'samsung_modes_proximity_profiles_v1',
+  DEVICES: 'samsung_modes_saved_devices_v1',
+  AUTOMATION: 'samsung_modes_automation_state_v1',
+  PERMISSIONS: 'samsung_modes_permissions_v1',
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'proximity' | 'calibration' | 'ble-scanner' | 'rssi-monitor' | 'phases' | 'simulator' | 'diagnostics' | 'code' | 'architecture' | 'docs'
-  >('proximity');
+    'automation' | 'proximity' | 'calibration' | 'ble-scanner' | 'rssi-monitor' | 'phases' | 'simulator' | 'diagnostics' | 'code' | 'docs'
+  >('automation');
   
   const [currentDeviceId, setCurrentDeviceId] = useState<DeviceProfile>('galaxy-s23-oneui85');
   
-  // Phase 1 & 2 Proximity state
+  // Runtime Permissions State
+  const [permissionStatus, setPermissionStatus] = useState<RuntimePermissionStatus>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.PERMISSIONS);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      allGranted: true,
+      hasBluetoothScan: true,
+      hasBluetoothConnect: true,
+      hasFineLocation: true,
+      hasCoarseLocation: true,
+      hasNotification: true,
+      missingPermissions: [],
+    };
+  });
+
+  // Persistent Saved Devices
+  const [savedDevices, setSavedDevices] = useState<Record<string, BleDeviceProfile>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.DEVICES);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      'mfg:0x75:010042': {
+        id: 'dev-smarttag-bedroom',
+        displayName: 'Samsung SmartTag 1 (Bedroom)',
+        deviceType: 'SAMSUNG_SMARTTAG_1',
+        primaryKey: 'mfg:0x75:010042',
+        macAddress: 'E4:7B:A2:18:42:01',
+        targetManufacturerId: 0x0075,
+        createdAtMillis: Date.now() - 3600000,
+        notes: 'Primary room proximity beacon',
+      },
+    };
+  });
+
+  // Persistent Per-Device Calibration Profiles
+  const [savedProfiles, setSavedProfiles] = useState<Record<string, ProximityProfile>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.PROFILES);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      'mfg:0x75:010042': {
+        id: 'prof-bedroom-tag',
+        profileName: 'Bedroom Focus Tag Profile',
+        targetDeviceKey: 'mfg:0x75:010042',
+        targetDisplayName: 'Samsung SmartTag 1 (Bedroom)',
+        insideMetrics: null,
+        outsideMetrics: null,
+        enterThresholdRssi: -62,
+        exitThresholdRssi: -72,
+        enterDurationSeconds: 2,
+        exitDurationSeconds: 4,
+        filterType: 'EMA',
+        filterSmoothingParam: 0.25,
+        boundSamsungModeUuid: 'routine-bedroom-focus-01',
+        isEnabled: true,
+        createdAtMillis: Date.now() - 3600000,
+      },
+    };
+  });
+
+  // Active Selected Profile & Device
+  const [activeProfileKey, setActiveProfileKey] = useState<string>('mfg:0x75:010042');
+  const activeProximityProfile = savedProfiles[activeProfileKey] || Object.values(savedProfiles)[0] || null;
+  const savedProximityDevice = savedDevices[activeProfileKey] || Object.values(savedDevices)[0] || null;
+
+  // Phase 4 Automation State
+  const [automationState, setAutomationState] = useState<AutomationState>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.AUTOMATION);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      masterEnabled: true,
+      targetModeUuid: 'routine-bedroom-focus-01',
+      targetModeName: 'Bedroom Focus',
+      isPaused: false,
+      pauseUntilMillis: 0,
+      executionState: 'IDLE',
+      lastTriggeredTransition: 'None',
+      lastActionTimestampMillis: 0,
+      lastResultDetails: 'Ready for proximity events',
+      retryCount: 0,
+      totalTransitionsHandled: 0,
+      successfulInvocations: 0,
+      failedInvocations: 0,
+    };
+  });
+
+  const [auditEvents, setAuditEvents] = useState<AutomationAuditEvent[]>([
+    {
+      id: 'audit-1',
+      timestampMillis: Date.now() - 15000,
+      action: 'SYSTEM_READY',
+      fromState: 'UNKNOWN',
+      toState: 'OUTSIDE',
+      targetUuid: 'routine-bedroom-focus-01',
+      success: true,
+      message: 'Automation controller initialized with bound routine: Bedroom Focus',
+    },
+  ]);
+
+  // Phase 1 & 2 Scanning State
   const [isScanning, setIsScanning] = useState<boolean>(true);
   const [scanMode, setScanMode] = useState<BleScanMode>('BALANCED');
   const [discoveredDevices, setDiscoveredDevices] = useState<BleDiscoveredDevice[]>(INITIAL_BLE_DEVICES);
   const [inspectedDevice, setInspectedDevice] = useState<BleDiscoveredDevice | null>(INITIAL_BLE_DEVICES[0]);
-  const [savedProximityDevice, setSavedProximityDevice] = useState<BleDeviceProfile | null>({
-    id: 'saved-smarttag-bedroom',
-    displayName: 'Smart Tag (EI-T5300)',
-    deviceType: 'SAMSUNG_SMARTTAG_1',
-    primaryKey: 'mfg:0x75:010042',
-    macAddress: 'E4:7B:A2:18:42:01',
-    targetManufacturerId: 0x0075,
-    createdAtMillis: Date.now() - 3600000,
-    notes: 'Saved SmartTag beacon using advertised name latching',
-  });
-  const [activeProximityProfile, setActiveProximityProfile] = useState<ProximityProfile | null>(null);
+  const [simulatedProximityState, setSimulatedProximityState] = useState<ProximityState>('OUTSIDE');
 
   const [logs, setLogs] = useState<LogEntry[]>([
     {
@@ -212,9 +325,32 @@ export default function App() {
       level: 'BLE',
       message: 'BleDeviceIdentifier: Identified Samsung SmartTag 1 (Vendor: 0x0075 Samsung Electronics)',
     },
+    {
+      id: '4',
+      timestamp: '00:04:12.140',
+      level: 'AUTO',
+      message: 'ProximityAutomationController: Master Automation ENABLED for target routine-bedroom-focus-01',
+    },
   ]);
 
   const currentDevice = DEVICE_PROFILES[currentDeviceId];
+
+  // Save to persistent storage whenever state changes
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(savedProfiles));
+  }, [savedProfiles]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.DEVICES, JSON.stringify(savedDevices));
+  }, [savedDevices]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.AUTOMATION, JSON.stringify(automationState));
+  }, [automationState]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.PERMISSIONS, JSON.stringify(permissionStatus));
+  }, [permissionStatus]);
 
   const handleAddLog = (level: LogEntry['level'], message: string) => {
     const newEntry: LogEntry = {
@@ -258,8 +394,118 @@ export default function App() {
       createdAtMillis: Date.now(),
       notes: 'Saved from Phase 1 BLE Scanner',
     };
-    setSavedProximityDevice(profile);
+    setSavedDevices((prev) => ({ ...prev, [dev.primaryKey]: profile }));
+    setActiveProfileKey(dev.primaryKey);
     setInspectedDevice(dev);
+    handleAddLog('BLE', `Saved Proximity Device: ${dev.name} (${dev.primaryKey})`);
+  };
+
+  const handleSaveCalibratedProfile = (prof: ProximityProfile) => {
+    setSavedProfiles((prev) => ({ ...prev, [prof.targetDeviceKey]: prof }));
+    setActiveProfileKey(prof.targetDeviceKey);
+    handleAddLog('SUCCESS', `Saved Per-Device Calibration for '${prof.targetDisplayName}' [ENTER: ${prof.enterThresholdRssi} dBm, EXIT: ${prof.exitThresholdRssi} dBm]`);
+  };
+
+  const handleGrantPermissions = () => {
+    const granted: RuntimePermissionStatus = {
+      allGranted: true,
+      hasBluetoothScan: true,
+      hasBluetoothConnect: true,
+      hasFineLocation: true,
+      hasCoarseLocation: true,
+      hasNotification: true,
+      missingPermissions: [],
+    };
+    setPermissionStatus(granted);
+    handleAddLog('SUCCESS', 'All required Bluetooth & Location permissions granted interactively in-app.');
+  };
+
+  // Phase 4 Automation Dispatch Simulator
+  const handleSimulateTransition = (newState: ProximityState) => {
+    setSimulatedProximityState(newState);
+    if (!automationState.masterEnabled) {
+      handleAddLog('WARN', `Proximity state changed to ${newState}, but Master Automation is DISABLED.`);
+      return;
+    }
+    if (automationState.isPaused) {
+      handleAddLog('WARN', `Proximity state changed to ${newState}, but Automation is currently PAUSED.`);
+      return;
+    }
+
+    if (newState === 'INSIDE') {
+      handleAddLog('AUTO', `[OUTSIDE → INSIDE] Dispatching startMode(${automationState.targetModeUuid}) to Samsung Modes Backend [${currentDevice.selectedBackend}]`);
+      setAutomationState((prev) => ({
+        ...prev,
+        executionState: 'START_SUCCESS',
+        lastTriggeredTransition: 'OUTSIDE → INSIDE',
+        lastActionTimestampMillis: Date.now(),
+        lastResultDetails: `SUCCESS: Activated mode '${prev.targetModeName}'`,
+        totalTransitionsHandled: prev.totalTransitionsHandled + 1,
+        successfulInvocations: prev.successfulInvocations + 1,
+      }));
+      setAuditEvents((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          timestampMillis: Date.now(),
+          action: 'START_MODE_SUCCESS',
+          fromState: 'OUTSIDE',
+          toState: 'INSIDE',
+          targetUuid: automationState.targetModeUuid,
+          success: true,
+          message: `Dispatched startMode('${automationState.targetModeUuid}') via ${currentDevice.selectedBackend}`,
+        },
+      ]);
+    } else if (newState === 'OUTSIDE') {
+      handleAddLog('AUTO', `[INSIDE → OUTSIDE] Dispatching stopMode(${automationState.targetModeUuid}) to Samsung Modes Backend [${currentDevice.selectedBackend}]`);
+      setAutomationState((prev) => ({
+        ...prev,
+        executionState: 'STOP_SUCCESS',
+        lastTriggeredTransition: 'INSIDE → OUTSIDE',
+        lastActionTimestampMillis: Date.now(),
+        lastResultDetails: `SUCCESS: Stopped mode '${prev.targetModeName}'`,
+        totalTransitionsHandled: prev.totalTransitionsHandled + 1,
+        successfulInvocations: prev.successfulInvocations + 1,
+      }));
+      setAuditEvents((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          timestampMillis: Date.now(),
+          action: 'STOP_MODE_SUCCESS',
+          fromState: 'INSIDE',
+          toState: 'OUTSIDE',
+          targetUuid: automationState.targetModeUuid,
+          success: true,
+          message: `Dispatched stopMode('${automationState.targetModeUuid}') via ${currentDevice.selectedBackend}`,
+        },
+      ]);
+    }
+  };
+
+  const handleResetAllData = () => {
+    localStorage.removeItem(STORAGE_KEYS.PROFILES);
+    localStorage.removeItem(STORAGE_KEYS.DEVICES);
+    localStorage.removeItem(STORAGE_KEYS.AUTOMATION);
+    setSavedProfiles({});
+    setSavedDevices({});
+    setActiveProfileKey('');
+    setAutomationState({
+      masterEnabled: false,
+      targetModeUuid: '',
+      targetModeName: '',
+      isPaused: false,
+      pauseUntilMillis: 0,
+      executionState: 'DISABLED',
+      lastTriggeredTransition: 'Reset',
+      lastActionTimestampMillis: Date.now(),
+      lastResultDetails: 'Storage cleared',
+      retryCount: 0,
+      totalTransitionsHandled: 0,
+      successfulInvocations: 0,
+      failedInvocations: 0,
+    });
+    handleAddLog('WARN', 'FACTORY RESET COMPLETE: Cleared all persistent profiles and configurations.');
   };
 
   return (
@@ -268,18 +514,18 @@ export default function App() {
       <header className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-md shadow-blue-900/30">
-              <Shield className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center shadow-md shadow-purple-900/30">
+              <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-sm font-bold text-white tracking-tight">Samsung Modes • BLE Proximity</h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-blue-950 text-blue-300 border border-blue-800">
-                  Phase 1 Active
+                <h1 className="text-sm font-bold text-white tracking-tight">Samsung Modes • Proximity Automation</h1>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-purple-950 text-purple-300 border border-purple-800">
+                  Phase 4 Active
                 </span>
               </div>
               <p className="text-xs text-neutral-400">
-                Samsung SmartTag 1 & Generic Beacons • Continuous RSSI • One UI 8.0 & 8.5
+                BLE RSSI Proximity State Machine → Samsung Modes Automation Engine
               </p>
             </div>
           </div>
@@ -287,12 +533,12 @@ export default function App() {
           {/* Test Phone Profile Selector */}
           <div className="flex items-center gap-2 bg-neutral-950 p-1.5 rounded-xl border border-neutral-800">
             <span className="text-xs font-semibold text-neutral-400 pl-2 pr-1 flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-blue-400" /> Phone:
+              <Smartphone className="w-3.5 h-3.5 text-purple-400" /> Phone:
             </span>
             <select
               value={currentDeviceId}
               onChange={(e) => handleDeviceSwitch(e.target.value as DeviceProfile)}
-              className="bg-neutral-900 border border-neutral-700 text-neutral-200 text-xs font-semibold rounded-lg px-2.5 py-1 focus:outline-none focus:border-blue-500 cursor-pointer"
+              className="bg-neutral-900 border border-neutral-700 text-neutral-200 text-xs font-semibold rounded-lg px-2.5 py-1 focus:outline-none focus:border-purple-500 cursor-pointer"
             >
               <option value="galaxy-s23-oneui85">Galaxy S23 (One UI 8.5 / V85 Backend)</option>
               <option value="galaxy-s23-oneui80">Galaxy S23 (One UI 8.0 / V8 Backend)</option>
@@ -304,10 +550,11 @@ export default function App() {
         {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1.5 overflow-x-auto border-t border-neutral-800/80 pt-1">
           {[
-            { id: 'proximity', label: 'Proximity Live (P3)', icon: Radar, highlight: true },
-            { id: 'calibration', label: 'Calibration (P2)', icon: Sliders, highlight: true },
-            { id: 'ble-scanner', label: 'BLE Scanner (P1)', icon: Radio, highlight: true },
-            { id: 'rssi-monitor', label: 'RSSI Monitor (P1)', icon: BarChart3, highlight: true },
+            { id: 'automation', label: 'Automation (P4)', icon: Zap, highlight: true },
+            { id: 'proximity', label: 'Proximity Live (P3)', icon: Radar },
+            { id: 'calibration', label: 'Calibration (P2)', icon: Sliders },
+            { id: 'ble-scanner', label: 'BLE Scanner (P1)', icon: Radio },
+            { id: 'rssi-monitor', label: 'RSSI Monitor (P1)', icon: BarChart3 },
             { id: 'phases', label: 'Roadmap & Blueprint', icon: Layers },
             { id: 'simulator', label: 'Samsung Modes POC', icon: Smartphone },
             { id: 'diagnostics', label: 'Diagnostics Matrix', icon: Activity },
@@ -322,11 +569,11 @@ export default function App() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`px-3 py-2 text-xs font-semibold rounded-t-lg flex items-center gap-2 transition-all whitespace-nowrap border-b-2 ${
                   isActive
-                    ? 'text-blue-400 border-blue-500 bg-neutral-800/60'
+                    ? 'text-purple-400 border-purple-500 bg-neutral-800/60'
                     : 'text-neutral-400 border-transparent hover:text-neutral-200 hover:bg-neutral-800/30'
                 }`}
               >
-                <Icon className={`w-3.5 h-3.5 ${tab.highlight && !isActive ? 'text-blue-400' : ''}`} />
+                <Icon className={`w-3.5 h-3.5 ${tab.highlight && !isActive ? 'text-purple-400' : ''}`} />
                 {tab.label}
               </button>
             );
@@ -336,6 +583,70 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+        {activeTab === 'automation' && (
+          <AutomationControllerView
+            automationState={automationState}
+            proximityState={simulatedProximityState}
+            filteredRssi={-60}
+            confidencePercent={94}
+            activeProfile={activeProximityProfile}
+            savedProfiles={savedProfiles}
+            savedDevices={savedDevices}
+            permissionStatus={permissionStatus}
+            auditEvents={auditEvents}
+            onRequestPermissions={handleGrantPermissions}
+            onToggleMaster={(en) => {
+              setAutomationState((p) => ({ ...p, masterEnabled: en }));
+              handleAddLog('AUTO', `Master Automation ${en ? 'ENABLED' : 'DISABLED'}`);
+            }}
+            onSetTargetMode={(uuid, name) => {
+              setAutomationState((p) => ({
+                ...p,
+                targetModeUuid: uuid,
+                targetModeName: name || 'Selected Mode',
+              }));
+              handleAddLog('AUTO', `Bound target mode: ${name || uuid}`);
+            }}
+            onPause={(min) => {
+              setAutomationState((p) => ({
+                ...p,
+                isPaused: true,
+                pauseUntilMillis: Date.now() + min * 60000,
+                executionState: 'PAUSED',
+              }));
+              handleAddLog('WARN', `Automation paused for ${min} minutes.`);
+            }}
+            onResume={() => {
+              setAutomationState((p) => ({
+                ...p,
+                isPaused: false,
+                pauseUntilMillis: 0,
+                executionState: 'IDLE',
+              }));
+              handleAddLog('AUTO', 'Automation resumed.');
+            }}
+            onEmergencyStop={() => {
+              setAutomationState((p) => ({
+                ...p,
+                masterEnabled: false,
+                executionState: 'DISABLED',
+                lastResultDetails: 'EMERGENCY STOPPED',
+              }));
+              handleAddLog('ERROR', 'EMERGENCY STOP TRIGGERED: Mode stopped and automation disabled.');
+            }}
+            onReconcile={() => {
+              handleSimulateTransition(simulatedProximityState);
+              handleAddLog('AUTO', 'State reconciled with current proximity state.');
+            }}
+            onSelectDeviceProfile={(devKey) => {
+              setActiveProfileKey(devKey);
+              handleAddLog('BLE', `Switched active per-device profile to: ${savedProfiles[devKey]?.targetDisplayName || devKey}`);
+            }}
+            onResetAllData={handleResetAllData}
+            onSimulateTransition={handleSimulateTransition}
+          />
+        )}
+
         {activeTab === 'proximity' && (
           <ProximityStateView
             activeProfile={activeProximityProfile}
@@ -343,17 +654,16 @@ export default function App() {
             onLog={handleAddLog}
           />
         )}
+
         {activeTab === 'calibration' && (
           <CalibrationView
             savedDevice={savedProximityDevice}
             discoveredDevices={discoveredDevices}
-            onSaveProfile={(prof) => {
-              setActiveProximityProfile(prof);
-              handleAddLog('SUCCESS', `Saved Proximity Profile '${prof.profileName}' [ENTER: ${prof.enterThresholdRssi} dBm, EXIT: ${prof.exitThresholdRssi} dBm]`);
-            }}
+            onSaveProfile={handleSaveCalibratedProfile}
             onLog={handleAddLog}
           />
         )}
+
         {activeTab === 'ble-scanner' && (
           <BleScannerView
             discoveredDevices={discoveredDevices}
@@ -406,9 +716,10 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-neutral-800/80 py-3 px-6 text-center text-xs text-neutral-500 flex flex-col sm:flex-row items-center justify-between max-w-7xl mx-auto w-full gap-2">
-        <span>Samsung Modes POC & BLE Proximity Engine • Android 16 (API 36)</span>
-        <span className="font-mono text-neutral-400">Phase 1: BLE Scanner & RSSI Monitor</span>
+        <span>Samsung Modes POC & BLE Proximity Automation • Android 16 (API 36)</span>
+        <span className="font-mono text-neutral-400">Phase 4: Proximity Automation & Samsung Modes Dispatcher</span>
       </footer>
     </div>
   );
 }
+

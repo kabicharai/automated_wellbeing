@@ -172,12 +172,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Observe Proximity Engine snapshot to update Foreground Service notification
         viewModelScope.launch {
-            proximityEngine.stateSnapshot.collect { snapshot ->
+            proximityEngine.snapshot.collect { snapshot ->
                 if (ProximityForegroundService.isRunning()) {
                     val targetName = _uiState.value.savedProximityDevice?.displayName
                         ?: _uiState.value.activeProximityProfile?.targetDisplayName
                         ?: "BLE Proximity Beacon"
-                    val isAuto = _uiState.value.automationState.isMasterEnabled && !_uiState.value.automationState.isPaused
+                    val isAuto = _uiState.value.automationState.masterEnabled && !_uiState.value.automationState.isPaused
                     val modeUuid = _uiState.value.automationState.targetModeUuid
 
                     try {

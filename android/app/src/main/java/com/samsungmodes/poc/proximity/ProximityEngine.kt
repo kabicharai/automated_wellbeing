@@ -48,7 +48,8 @@ class ProximityEngine(
     private var candidateStartTimeMillis: Long = 0L
     private var candidateRequiredDurationMillis: Long = 0L
 
-    private var activeProfile: ProximityProfile? = initialProfile
+    var activeProfile: ProximityProfile? = initialProfile
+        private set
     private var rssiFilter: RssiFilter = RssiFilterFactory.create(
         type = initialProfile?.filterType ?: RssiFilterType.EMA,
         smoothingParam = initialProfile?.filterSmoothingParam ?: 0.25,

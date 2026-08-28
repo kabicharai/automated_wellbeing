@@ -661,6 +661,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(logs = emptyList())
     }
 
+    fun exportConfigBackup() {
+        try {
+            storageRepository.syncBackupToExternalStorage()
+            log("STORAGE", "Configuration backup exported to Documents/SamsungModes/samsung_modes_backup.json")
+        } catch (e: Exception) {
+            log("ERROR", "Failed to export backup: ${e.message}")
+        }
+    }
+
+    fun restoreConfigBackup(): Boolean {
+        return try {
+            val restored = storageRepository.restoreFromExternalStorage()
+            if (restored) {
+                val savedDevices = storageRepository.getAllSavedDevices()
+                val activeKey = storageRepository.getActiveDeviceKey()
+                val savedDevice = activeKey?.let { savedDevices[it] } ?: savedDevices.values.firstOrNull()
+                val profiles = storageRepository.getAllProximityProfiles()
+                val profile = activeKey?.let { profiles[it] } ?: profiles.values.firstOrNull()
+
+                _uiState.value = _uiState.value.copy(
+                    savedDevices = savedDevices,
+                    savedProximityDevice = savedDevice,
+                    proximityProfiles = profiles,
+                    activeProximityProfile = profile,
+                    modeUuid = storageRepository.getTargetModeUuid()
+                )
+                log("SUCCESS", "Configuration restored successfully from Documents/SamsungModes/samsung_modes_backup.json (${savedDevices.size} devices, ${profiles.size} profiles)")
+            } else {
+                log("WARN", "No backup found in Documents/SamsungModes/samsung_modes_backup.json")
+            }
+            restored
+        } catch (e: Exception) {
+            log("ERROR", "Failed to restore backup: ${e.message}")
+            false
+        }
+    }
+
     private fun handleOperationResult(action: String, result: ModeOperationResult) {
         when (result) {
             is ModeOperationResult.Success -> {

@@ -16,9 +16,16 @@ import java.util.UUID
  * Storage Repository providing persistent storage for BLE Devices, Per-Device Calibration Profiles,
  * and Automation Configurations across app sessions and reinstalls (via Android AutoBackup).
  */
-class ProximityStorageRepository(context: Context) {
+class ProximityStorageRepository(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    init {
+        // Auto-restore backup from external documents storage if this is a fresh install or empty prefs
+        if (getAllSavedDevices().isEmpty()) {
+            restoreFromExternalStorage()
+        }
+    }
 
     companion object {
         private const val PREFS_NAME = "samsung_modes_proximity_store"
@@ -73,6 +80,7 @@ class ProximityStorageRepository(context: Context) {
             jsonArray.put(obj)
         }
         prefs.edit().putString(KEY_SAVED_DEVICES, jsonArray.toString()).apply()
+        syncBackupToExternalStorage()
     }
 
     // --- Per-Device Calibration Profiles Persistence ---
@@ -118,6 +126,7 @@ class ProximityStorageRepository(context: Context) {
             jsonArray.put(obj)
         }
         prefs.edit().putString(KEY_DEVICE_PROFILES, jsonArray.toString()).apply()
+        syncBackupToExternalStorage()
     }
 
     // --- Active Device Key ---
@@ -158,6 +167,73 @@ class ProximityStorageRepository(context: Context) {
 
     fun setPauseUntilMillis(millis: Long) {
         prefs.edit().putLong(KEY_PAUSE_UNTIL_MILLIS, millis).apply()
+    }
+
+    // --- Local Backup & Restore (Survives Uninstalls) ---
+
+    fun exportFullBackupJson(): String {
+        val root = JSONObject()
+        val devicesJson = prefs.getString(KEY_SAVED_DEVICES, "[]") ?: "[]"
+        val profilesJson = prefs.getString(KEY_DEVICE_PROFILES, "[]") ?: "[]"
+        
+        root.put("version", 1)
+        root.put("timestamp", System.currentTimeMillis())
+        root.put("saved_devices", JSONArray(devicesJson))
+        root.put("device_profiles", JSONArray(profilesJson))
+        root.put("active_device_key", getActiveDeviceKey() ?: "")
+        root.put("master_automation", isMasterAutomationEnabled())
+        root.put("target_mode_uuid", getTargetModeUuid())
+        return root.toString(2)
+    }
+
+    fun syncBackupToExternalStorage() {
+        try {
+            val json = exportFullBackupJson()
+            LocalExternalConfigStorage.saveBackup(context, json)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun restoreFromExternalStorage(): Boolean {
+        try {
+            val jsonString = LocalExternalConfigStorage.readBackup(context) ?: return false
+            return importFullBackupJson(jsonString)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+    }
+
+    fun importFullBackupJson(jsonContent: String): Boolean {
+        return try {
+            val root = JSONObject(jsonContent)
+            val editor = prefs.edit()
+
+            if (root.has("saved_devices")) {
+                editor.putString(KEY_SAVED_DEVICES, root.getJSONArray("saved_devices").toString())
+            }
+            if (root.has("device_profiles")) {
+                editor.putString(KEY_DEVICE_PROFILES, root.getJSONArray("device_profiles").toString())
+            }
+            if (root.has("active_device_key")) {
+                val key = root.getString("active_device_key")
+                if (key.isNotBlank()) {
+                    editor.putString(KEY_ACTIVE_DEVICE_KEY, key)
+                }
+            }
+            if (root.has("master_automation")) {
+                editor.putBoolean(KEY_MASTER_AUTOMATION, root.getBoolean("master_automation"))
+            }
+            if (root.has("target_mode_uuid")) {
+                editor.putString(KEY_TARGET_MODE_UUID, root.getString("target_mode_uuid"))
+            }
+            editor.commit()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     // --- Reset All Data ---

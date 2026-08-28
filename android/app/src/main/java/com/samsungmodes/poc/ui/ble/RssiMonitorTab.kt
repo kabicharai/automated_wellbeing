@@ -18,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.samsungmodes.poc.ble.RssiTracker
+import com.samsungmodes.poc.ble.model.BleDeviceProfile
+import com.samsungmodes.poc.ble.model.BleProximityDevice
+import com.samsungmodes.poc.ble.model.BleRssiSample
 import com.samsungmodes.poc.ui.MainViewModel
 
 @Composable
@@ -28,10 +31,10 @@ fun RssiMonitorTab(
     val state by viewModel.uiState.collectAsState()
     val snapshot = state.activeRssiSnapshot
     val target = state.savedProximityDevice ?: state.inspectedDevice?.let { dev ->
-        com.samsungmodes.poc.ble.model.BleDeviceProfile(
+        BleDeviceProfile(
             id = "preview",
             displayName = dev.name,
-            deviceType = com.samsungmodes.poc.ble.model.BleProximityDevice.DeviceType.CUSTOM_BLE,
+            deviceType = BleProximityDevice.DeviceType.CUSTOM_BLE,
             deviceId = dev.deviceId
         )
     }
@@ -100,13 +103,13 @@ fun RssiMonitorTab(
             )
             MetricCard(
                 label = "AVG RSSI (WINDOW)",
-                value = snapshot.averageRssi?.let { String.format("%.1f dBm", it) } ?: "--",
+                value = snapshot.average?.let { String.format("%.1f dBm", it) } ?: "--",
                 highlightColor = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             MetricCard(
                 label = "MEDIAN (P50)",
-                value = snapshot.medianRssi?.let { "$it dBm" } ?: "--",
+                value = snapshot.median?.let { "$it dBm" } ?: "--",
                 highlightColor = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
             )
@@ -118,13 +121,13 @@ fun RssiMonitorTab(
         ) {
             MetricCard(
                 label = "STD DEV (σ)",
-                value = snapshot.stdDev?.let { String.format("±%.1f dB", it) } ?: "--",
+                value = snapshot.standardDeviation?.let { String.format("±%.1f dB", it) } ?: "--",
                 highlightColor = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
             MetricCard(
                 label = "MIN / MAX",
-                value = if (snapshot.minRssi != null && snapshot.maxRssi != null) "${snapshot.minRssi} / ${snapshot.maxRssi}" else "--",
+                value = if (snapshot.min != null && snapshot.max != null) "${snapshot.min} / ${snapshot.max}" else "--",
                 highlightColor = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
@@ -185,7 +188,7 @@ fun RssiMonitorTab(
                         .weight(1f)
                 ) {
                     RssiCanvasGraph(
-                        samples = snapshot.samples,
+                        samples = snapshot.historySamples,
                         minDbm = -100f,
                         maxDbm = -40f,
                         modifier = Modifier.fillMaxSize()
@@ -220,7 +223,7 @@ private fun MetricCard(
 
 @Composable
 private fun RssiCanvasGraph(
-    samples: List<RssiTracker.RssiSample>,
+    samples: List<BleRssiSample>,
     minDbm: Float,
     maxDbm: Float,
     modifier: Modifier = Modifier

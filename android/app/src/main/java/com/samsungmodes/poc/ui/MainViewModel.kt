@@ -683,7 +683,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(
                     savedDevices = savedDevices,
                     savedProximityDevice = savedDevice,
-                    proximityProfiles = profiles,
+                    savedProfiles = profiles,
                     activeProximityProfile = profile,
                     modeUuid = storageRepository.getTargetModeUuid()
                 )

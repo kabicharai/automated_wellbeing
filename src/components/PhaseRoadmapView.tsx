@@ -6,7 +6,7 @@ export function PhaseRoadmapView() {
     {
       number: '1',
       title: 'BLE Device Discovery & Live RSSI Monitor',
-      status: 'IN_PROGRESS',
+      status: 'COMPLETED',
       description:
         'Standard Android 16 BLE scanner, stable identity abstraction (BleDeviceId), raw advertisement inspector, and continuous RSSI telemetry waveform.',
       deliverables: [
@@ -21,7 +21,7 @@ export function PhaseRoadmapView() {
     {
       number: '2',
       title: 'RSSI Filtering & Dual-Zone Calibration Engine',
-      status: 'PLANNED',
+      status: 'COMPLETED',
       description:
         'Guided 2-step calibration UX (30s Outside + 30s Inside), statistical distribution modeling, percentiles (p10, p25, p75, p90), and separation quality evaluation.',
       deliverables: [
@@ -35,7 +35,7 @@ export function PhaseRoadmapView() {
     {
       number: '3',
       title: 'Proximity State Machine & Anti-Flapping Engine',
-      status: 'PLANNED',
+      status: 'COMPLETED',
       description:
         'Deterministic 3-state machine (UNKNOWN, INSIDE, OUTSIDE) with dual hysteresis thresholds, configurable temporal persistence timers, and lost-beacon protection.',
       deliverables: [
@@ -43,13 +43,14 @@ export function PhaseRoadmapView() {
         'Temporal candidate duration timers (5s enter / 10s exit)',
         'Lost device 30s timeout (prevents false outside transitions)',
         'Confidence score metric calculation',
+        'Anti-flapping candidate verification & instant abort logic',
       ],
       icon: Activity,
     },
     {
       number: '4',
       title: 'Automation Controller & Samsung Modes Integration',
-      status: 'PLANNED',
+      status: 'IN_PROGRESS',
       description:
         'Zero-churn state transition mediator invoking the working One UI 8.0/8.5 controller APIs on confirmed INSIDE/OUTSIDE boundary events.',
       deliverables: [

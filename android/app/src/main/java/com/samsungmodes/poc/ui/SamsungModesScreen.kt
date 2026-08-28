@@ -24,13 +24,15 @@ import androidx.compose.ui.unit.sp
 import com.samsungmodes.poc.ui.ble.BleScannerTab
 import com.samsungmodes.poc.ui.ble.RssiMonitorTab
 import com.samsungmodes.poc.ui.ble.CalibrationTab
+import com.samsungmodes.poc.ui.ble.ProximityStateTab
 import com.samsungmodes.poc.ui.ble.RoadmapTab
 
 enum class AppTab(val title: String) {
     SAMSUNG_MODES("Modes"),
-    BLE_SCANNER("BLE Scanner"),
-    RSSI_MONITOR("RSSI Live"),
-    CALIBRATION("Calibration"),
+    BLE_SCANNER("BLE"),
+    RSSI_MONITOR("RSSI"),
+    CALIBRATION("Calibrate"),
+    PROXIMITY("Proximity"),
     ROADMAP("Roadmap")
 }
 
@@ -44,7 +46,7 @@ fun SamsungModesScreen(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    var selectedTab by remember { mutableStateOf(AppTab.CALIBRATION) }
+    var selectedTab by remember { mutableStateOf(AppTab.PROXIMITY) }
 
     // Auto scroll logs to bottom when new logs arrive
     LaunchedEffect(state.logs.size) {
@@ -64,7 +66,7 @@ fun SamsungModesScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            "Phase 2: RSSI Filtering & Dual-Zone Calibration",
+                            "Phase 3: Proximity Engine & Anti-Flapping State Machine",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -96,10 +98,11 @@ fun SamsungModesScreen(
                                 AppTab.BLE_SCANNER -> Icon(Icons.Default.Search, contentDescription = null)
                                 AppTab.RSSI_MONITOR -> Icon(Icons.Default.Timeline, contentDescription = null)
                                 AppTab.CALIBRATION -> Icon(Icons.Default.Tune, contentDescription = null)
+                                AppTab.PROXIMITY -> Icon(Icons.Default.Sensors, contentDescription = null)
                                 AppTab.ROADMAP -> Icon(Icons.Default.List, contentDescription = null)
                             }
                         },
-                        label = { Text(tab.title, fontSize = 10.sp, fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal) }
+                        label = { Text(tab.title, fontSize = 9.sp, fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal) }
                     )
                 }
             }
@@ -121,6 +124,7 @@ fun SamsungModesScreen(
                     AppTab.BLE_SCANNER -> BleScannerTab(viewModel = viewModel)
                     AppTab.RSSI_MONITOR -> RssiMonitorTab(viewModel = viewModel)
                     AppTab.CALIBRATION -> CalibrationTab(viewModel = viewModel)
+                    AppTab.PROXIMITY -> ProximityStateTab(viewModel = viewModel)
                     AppTab.ROADMAP -> RoadmapTab()
                     AppTab.SAMSUNG_MODES -> SamsungModesContent(viewModel = viewModel, state = state)
                 }

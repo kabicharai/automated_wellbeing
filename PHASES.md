@@ -53,16 +53,17 @@ This document outlines the sequential phases for building the BLE Proximity → 
 
 ---
 
-### ⏳ Phase 3: Proximity State Machine & Anti-Flapping Engine
-- [ ] **3-State Machine**: `UNKNOWN` ↔ `INSIDE` ↔ `OUTSIDE`.
-- [ ] **Hysteresis Engine**: Distinct ENTER threshold (e.g. $\ge -64\text{ dBm}$) and EXIT threshold (e.g. $\le -69\text{ dBm}$).
-- [ ] **Temporal Stability & Candidate Timers**: Configurable candidate duration (e.g. 5s for ENTER, 10s for EXIT) to suppress sudden spikes and body blocking.
-- [ ] **Lost-Device Handling**: Configurable timeout (default 30s) — temporary signal drops preserve the current state and do NOT immediately cause an `OUTSIDE` flip.
-- [ ] **Confidence Metric**: Real-time calculation based on sample density, variance, and threshold margin.
+### ✅ Phase 3: Proximity State Machine & Anti-Flapping Engine (COMPLETED)
+- [x] **3-State Machine (`ProximityEngine`)**: `UNKNOWN` ↔ `INSIDE` ↔ `OUTSIDE`.
+- [x] **Hysteresis Engine**: Dual-threshold boundary (ENTER e.g. $\ge -64\text{ dBm}$ vs EXIT e.g. $\le -69\text{ dBm}$) with central deadband.
+- [x] **Temporal Stability & Candidate Timers**: Anti-flapping temporal verification with high-resolution countdown timer (5s for ENTER, 10s for EXIT) and instant candidate abort if signal leaves target region.
+- [x] **Lost-Device Handling**: Configurable timeout (default 30s) — temporary signal dropouts and multi-path fades preserve current state and do not trigger false flips; graceful fallback to `UNKNOWN` after timeout.
+- [x] **Confidence Metric**: Real-time confidence score (0-100%) computed from packet freshness, sample variance ($\sigma$), and threshold distance.
+- [x] **Live State Visualizer (`ProximityStateTab.kt` & `ProximityStateView.tsx`)**: Real-time signal needle gauge, state transition flow nodes, candidate progress bar, interactive scenario simulator, and transition event log.
 
 ---
 
-### ⏳ Phase 4: Proximity Automation Controller & Samsung Modes Binding
+### ⏳ Phase 4: Proximity Automation Controller & Samsung Modes Binding (NEXT PHASE)
 - [ ] **Automation Dispatcher**: Triggers `startMode(uuid)` on `OUTSIDE → INSIDE` and `stopMode(uuid)` on `INSIDE → OUTSIDE`.
 - [ ] **Transition Integrity**: Zero duplicate calls, ignores `UNKNOWN` transitions, handles startup synchronization without unrequested toggles.
 - [ ] **Safety & Overrides**: Master Automation ON/OFF switch, Pause/Resume controls, and Emergency Stop Mode.

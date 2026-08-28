@@ -8,8 +8,9 @@ import { DocumentationView } from './components/DocumentationView';
 import { BleScannerView } from './components/BleScannerView';
 import { RssiMonitorView } from './components/RssiMonitorView';
 import { CalibrationView } from './components/CalibrationView';
+import { ProximityStateView } from './components/ProximityStateView';
 import { PhaseRoadmapView } from './components/PhaseRoadmapView';
-import { Smartphone, Activity, Code, GitFork, BookOpen, Radio, BarChart3, Shield, Layers, Sliders } from 'lucide-react';
+import { Smartphone, Activity, Code, GitFork, BookOpen, Radio, BarChart3, Shield, Layers, Sliders, Radar } from 'lucide-react';
 
 const DEVICE_PROFILES: Record<DeviceProfile, DeviceInfo> = {
   'galaxy-s23-oneui85': {
@@ -170,8 +171,8 @@ const INITIAL_BLE_DEVICES: BleDiscoveredDevice[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'calibration' | 'ble-scanner' | 'rssi-monitor' | 'phases' | 'simulator' | 'diagnostics' | 'code' | 'architecture' | 'docs'
-  >('calibration');
+    'proximity' | 'calibration' | 'ble-scanner' | 'rssi-monitor' | 'phases' | 'simulator' | 'diagnostics' | 'code' | 'architecture' | 'docs'
+  >('proximity');
   
   const [currentDeviceId, setCurrentDeviceId] = useState<DeviceProfile>('galaxy-s23-oneui85');
   
@@ -303,6 +304,7 @@ export default function App() {
         {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1.5 overflow-x-auto border-t border-neutral-800/80 pt-1">
           {[
+            { id: 'proximity', label: 'Proximity Live (P3)', icon: Radar, highlight: true },
             { id: 'calibration', label: 'Calibration (P2)', icon: Sliders, highlight: true },
             { id: 'ble-scanner', label: 'BLE Scanner (P1)', icon: Radio, highlight: true },
             { id: 'rssi-monitor', label: 'RSSI Monitor (P1)', icon: BarChart3, highlight: true },
@@ -334,6 +336,13 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+        {activeTab === 'proximity' && (
+          <ProximityStateView
+            activeProfile={activeProximityProfile}
+            savedDevice={savedProximityDevice}
+            onLog={handleAddLog}
+          />
+        )}
         {activeTab === 'calibration' && (
           <CalibrationView
             savedDevice={savedProximityDevice}

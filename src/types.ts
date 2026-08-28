@@ -141,3 +141,38 @@ export interface ProximityProfile {
   createdAtMillis: number;
 }
 
+export type ProximityState = 'UNKNOWN' | 'INSIDE' | 'OUTSIDE';
+export type CandidateStatus = 'NONE' | 'ENTERING' | 'EXITING';
+
+export interface ProximityTransitionEvent {
+  id: string;
+  timestampMillis: number;
+  fromState: ProximityState;
+  toState: ProximityState;
+  candidateStatus: CandidateStatus;
+  filteredRssi: number | null;
+  rawRssi: number | null;
+  reason: string;
+}
+
+export interface ProximityEngineSnapshot {
+  state: ProximityState;
+  candidateStatus: CandidateStatus;
+  candidateProgressPercent: number;
+  candidateElapsedSeconds: number;
+  candidateTotalSeconds: number;
+  currentFilteredRssi: number | null;
+  currentRawRssi: number | null;
+  confidencePercent: number;
+  enterThreshold: number;
+  exitThreshold: number;
+  enterDurationSeconds: number;
+  exitDurationSeconds: number;
+  isBeaconLost: boolean;
+  secondsSinceLastSample: number;
+  lostTimeoutSeconds: number;
+  profileName: string;
+  recentEvents: ProximityTransitionEvent[];
+}
+
+

@@ -122,39 +122,45 @@ export const CalibrationView: React.FC<CalibrationViewProps> = ({
     };
   };
 
+  const countdownRef = useRef(countdown);
+  countdownRef.current = countdown;
+  const outsideSamplesRef = useRef(outsideSamples);
+  outsideSamplesRef.current = outsideSamples;
+  const insideSamplesRef = useRef(insideSamples);
+  insideSamplesRef.current = insideSamples;
+  const outsideMetricsRef = useRef(outsideMetrics);
+  outsideMetricsRef.current = outsideMetrics;
+
   // Live recording effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (step === 'recording_outside' || step === 'recording_inside') {
       interval = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            // Finish recording step
-            if (step === 'recording_outside') {
-              setStep('outside_done');
-              setOutsideMetrics((prevOut) => {
-                const updated = calculateMetrics(outsideSamples, 30);
-                onLog('SUCCESS', `Completed STEP 1 Outside Calibration (${updated.sampleCount} samples, Median: ${updated.medianRssi} dBm)`);
-                return updated;
-              });
-            } else if (step === 'recording_inside') {
-              setStep('calibration_ready');
-              const ins = calculateMetrics(insideSamples, 30);
-              setInsideMetrics(ins);
-              if (outsideMetrics) {
-                const res = computeThresholds(ins, outsideMetrics);
-                setCalcResult(res);
-                setCustomEnter(res.suggestedEnterThreshold);
-                setCustomExit(res.suggestedExitThreshold);
-                onLog('SUCCESS', `Completed Dual-Zone Calibration. Suggested ENTER: ${res.suggestedEnterThreshold} dBm, EXIT: ${res.suggestedExitThreshold} dBm (${res.quality})`);
-              }
+        const nextCountdown = countdownRef.current - 1;
+        
+        if (nextCountdown <= 0) {
+          setCountdown(0);
+          if (step === 'recording_outside') {
+            setStep('outside_done');
+            const updated = calculateMetrics(outsideSamplesRef.current, 30);
+            setOutsideMetrics(updated);
+            onLog('SUCCESS', `Completed STEP 1 Outside Calibration (${updated.sampleCount} samples, Median: ${updated.medianRssi} dBm)`);
+          } else if (step === 'recording_inside') {
+            setStep('calibration_ready');
+            const ins = calculateMetrics(insideSamplesRef.current, 30);
+            setInsideMetrics(ins);
+            if (outsideMetricsRef.current) {
+              const res = computeThresholds(ins, outsideMetricsRef.current);
+              setCalcResult(res);
+              setCustomEnter(res.suggestedEnterThreshold);
+              setCustomExit(res.suggestedExitThreshold);
+              onLog('SUCCESS', `Completed Dual-Zone Calibration. Suggested ENTER: ${res.suggestedEnterThreshold} dBm, EXIT: ${res.suggestedExitThreshold} dBm (${res.quality})`);
             }
-            return 0;
           }
-
+        } else {
+          setCountdown(nextCountdown);
           // Sample RSSI
           const currentRssi = trackedBeacon?.currentRssi ?? -72;
-          // Add minor natural random jitter if simulating
           const sample = currentRssi + Math.floor(Math.random() * 3) - 1;
 
           if (step === 'recording_outside') {
@@ -162,13 +168,11 @@ export const CalibrationView: React.FC<CalibrationViewProps> = ({
           } else {
             setInsideSamples((s) => [...s, sample]);
           }
-
-          return prev - 1;
-        });
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [step, outsideSamples, insideSamples, trackedBeacon, outsideMetrics]);
+  }, [step, trackedBeacon]);
 
   const handleStartOutside = () => {
     setOutsideSamples([]);

@@ -71,6 +71,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val bleScanner = BleScanner(application.applicationContext, viewModelScope)
     private val rssiTracker = RssiTracker(maxCapacity = 2000)
     val calibrationEngine = com.samsungmodes.poc.proximity.CalibrationEngine(viewModelScope)
+    val proximityEngine = com.samsungmodes.poc.proximity.ProximityEngine(viewModelScope)
     
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -103,12 +104,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         readCurrentMode()
 
-        // Observe BLE Scanner state and update RSSI tracker & Calibration Engine for the tracked device
+        // Observe BLE Scanner state and update RSSI tracker, Calibration Engine & Proximity Engine
         viewModelScope.launch {
             bleScanner.scannerState.collect { scanState ->
                 _uiState.value = _uiState.value.copy(scannerState = scanState)
 
-                // If a proximity device or inspected device is active, feed RSSI tracker and calibration engine
+                // If a proximity device or inspected device is active, feed RSSI tracker, calibration engine & proximity engine
                 val trackedKey = _uiState.value.savedProximityDevice?.deviceId?.primaryKey
                     ?: _uiState.value.inspectedDevice?.deviceId?.primaryKey
                     ?: _uiState.value.activeProximityProfile?.targetDeviceId?.primaryKey
@@ -122,11 +123,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (matchingDevice != null) {
                         rssiTracker.addSample(matchingDevice.currentRssi)
                         calibrationEngine.feedRssiSample(trackedKey, matchingDevice.currentRssi)
+                        proximityEngine.feedRssiSample(matchingDevice.currentRssi)
                         _uiState.value = _uiState.value.copy(
                             activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
                         )
                     }
                 }
+            }
+        }
+
+        // Observe Proximity Engine transition events for diagnostics log
+        viewModelScope.launch {
+            proximityEngine.transitionEvents.collect { ev ->
+                log("PROX", "[${ev.fromState} → ${ev.toState}] ${ev.reason}")
             }
         }
     }
@@ -145,6 +154,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveCalibratedProfile(profile: com.samsungmodes.poc.proximity.model.ProximityProfile) {
         _uiState.value = _uiState.value.copy(activeProximityProfile = profile)
+        proximityEngine.updateProfile(profile)
         log("CALIB", "PROXIMITY PROFILE SAVED: '${profile.profileName}' [ENTER: ${profile.enterThresholdRssi} dBm, EXIT: ${profile.exitThresholdRssi} dBm, Hysteresis: ${profile.enterThresholdRssi - profile.exitThresholdRssi} dB]")
     }
 

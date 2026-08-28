@@ -21,6 +21,7 @@ import com.samsungmodes.poc.ble.BleScanner
 import com.samsungmodes.poc.ble.model.BleDiscoveredDevice
 import com.samsungmodes.poc.ui.MainViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BleScannerTab(
     viewModel: MainViewModel,
@@ -30,11 +31,13 @@ fun BleScannerTab(
     val scanState = state.scannerState
     var filterText by remember { mutableStateOf("") }
     var filterOnlySmartTags by remember { mutableStateOf(false) }
+    var deviceToInspect by remember { mutableStateOf<BleDiscoveredDevice?>(null) }
 
     val filteredDevices = remember(scanState.discoveredDevices, filterText, filterOnlySmartTags) {
         scanState.discoveredDevices.filter { dev ->
             val matchesQuery = dev.name.contains(filterText, ignoreCase = true) ||
                     dev.address.contains(filterText, ignoreCase = true) ||
+                    dev.categoryLabel.contains(filterText, ignoreCase = true) ||
                     dev.deviceId.primaryKey.contains(filterText, ignoreCase = true)
             if (!matchesQuery) return@filter false
             if (filterOnlySmartTags && !dev.isSmartTagCandidate) return@filter false
@@ -71,7 +74,7 @@ fun BleScannerTab(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            if (scanState.isScanning) "Status: SCANNING ACTIVE" else "Status: IDLE",
+                            if (scanState.isScanning) "Status: SCANNING ACTIVE (${scanState.discoveredDevices.size} found)" else "Status: IDLE",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = if (scanState.isScanning) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -179,7 +182,7 @@ fun BleScannerTab(
             OutlinedTextField(
                 value = filterText,
                 onValueChange = { filterText = it },
-                placeholder = { Text("Filter devices...", fontSize = 12.sp) },
+                placeholder = { Text("Filter (SmartTag, TV, MAC...)", fontSize = 11.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f)
             )
@@ -197,7 +200,7 @@ fun BleScannerTab(
                     if (filterOnlySmartTags) {
                         Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
                     }
-                    Text("SmartTag", fontSize = 11.sp, fontWeight = if (filterOnlySmartTags) FontWeight.Bold else FontWeight.Normal)
+                    Text("Only SmartTags", fontSize = 11.sp, fontWeight = if (filterOnlySmartTags) FontWeight.Bold else FontWeight.Normal)
                 }
             }
 
@@ -215,7 +218,7 @@ fun BleScannerTab(
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
                     Icon(
                         Icons.Default.Search,
                         contentDescription = null,
@@ -228,6 +231,14 @@ fun BleScannerTab(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (filterOnlySmartTags) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Filtering strictly for SmartTags (0xFD5A / 0xFD59 / SmartTag 1/2)",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         } else {
@@ -245,12 +256,74 @@ fun BleScannerTab(
                         device = dev,
                         isTarget = isTarget,
                         isInspected = isInspected,
-                        onInspect = { viewModel.inspectDevice(dev) },
+                        onInspect = {
+                            viewModel.inspectDevice(dev)
+                            deviceToInspect = dev
+                        },
                         onSetTarget = { viewModel.saveAsProximityDevice(dev) }
                     )
                 }
             }
         }
+    }
+
+    // Diagnostic Detail Modal
+    deviceToInspect?.let { dev ->
+        AlertDialog(
+            onDismissRequest = { deviceToInspect = null },
+            title = {
+                Column {
+                    Text(dev.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(dev.categoryLabel, fontSize = 11.sp, color = Color(dev.categoryBadgeColor), fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("MAC Address: ${dev.formattedAddress}", fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    Text("Current RSSI: ${dev.currentRssi} dBm", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Packets Received: ${dev.totalSamples}", fontSize = 12.sp)
+
+                    if (!dev.offlineFindingPrivacyId.isNullOrBlank()) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE3F2FD), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(8.dp)) {
+                                Text("Offline Finding Privacy ID:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D47A1))
+                                Text(dev.offlineFindingPrivacyId, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                if (!dev.tagStatus.isNullOrBlank()) {
+                                    Text("Status: ${dev.tagStatus}", fontSize = 11.sp, color = Color(0xFF1565C0))
+                                }
+                            }
+                        }
+                    }
+
+                    if (dev.advertisement.serviceUuids.isNotEmpty()) {
+                        Text("Service UUIDs:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        dev.advertisement.serviceUuids.forEach { uuid ->
+                            Text(uuid.toString(), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+
+                    if (dev.advertisement.manufacturerDataMap.isNotEmpty()) {
+                        Text("Manufacturer Specific Data:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        dev.advertisement.getFormattedManufacturerList().forEach { (mfg, hex) ->
+                            Text("$mfg:\n$hex", fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.saveAsProximityDevice(dev)
+                    deviceToInspect = null
+                }) {
+                    Text("Set as Target")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deviceToInspect = null }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 
@@ -294,20 +367,21 @@ private fun DeviceCardItem(
                         fontSize = 13.sp,
                         maxLines = 1
                     )
-                    if (device.isSmartTagCandidate) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF0D47A1)
-                        ) {
-                            Text(
-                                "SmartTag",
-                                fontSize = 9.sp,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
+
+                    // Device Category Badge
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(device.categoryBadgeColor)
+                    ) {
+                        Text(
+                            if (device.isSmartTagCandidate) "SmartTag" else device.categoryLabel,
+                            fontSize = 9.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
                     }
+
                     if (isTarget) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
@@ -335,6 +409,23 @@ private fun DeviceCardItem(
                         device.currentRssi >= -80 -> Color(0xFFF57F17)
                         else -> Color(0xFFC62828)
                     }
+                )
+            }
+
+            // Subtitle / Privacy ID info
+            if (!device.offlineFindingPrivacyId.isNullOrBlank()) {
+                Text(
+                    "Find ID: ${device.offlineFindingPrivacyId.take(12)}... • ${device.tagStatus ?: "Offline Finding"}",
+                    fontSize = 10.sp,
+                    color = Color(0xFF0D47A1),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium
+                )
+            } else if (device.subtitle.isNotBlank()) {
+                Text(
+                    device.subtitle,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

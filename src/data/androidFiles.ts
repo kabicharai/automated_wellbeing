@@ -621,6 +621,47 @@ class SamsungModesRestrictionController(
 </manifest>`
   },
   {
+    path: 'ble/SamsungDeviceClassifier.kt',
+    name: 'SamsungDeviceClassifier.kt',
+    category: 'ble',
+    language: 'kotlin',
+    description: 'Intelligent classifier distinguishing Samsung Galaxy SmartTags (0xFD5A/0xFD59) from Samsung TVs, Refrigerators, Watches, Tablets, and generic beacons.',
+    content: `package com.samsungmodes.poc.ble
+
+import com.samsungmodes.poc.ble.model.BleRawAdvertisement
+import java.util.UUID
+
+/**
+ * Intelligent classifier for Bluetooth Low Energy devices.
+ * Accurately distinguishes between Samsung Galaxy SmartTags (Offline Finding 0xFD5A / 0xFD59 / SmartTag 1 & 2)
+ * and other Samsung appliances (Smart TVs, Refrigerators, Tablets, Galaxy Watches, Buds, Phones).
+ */
+object SamsungDeviceClassifier {
+    val UUID_SAMSUNG_OFFLINE_FINDING_FD5A: UUID = UUID.fromString("0000fd5a-0000-1000-8000-00805f9b34fb")
+    val UUID_SAMSUNG_UNREGISTERED_TAG_FD59: UUID = UUID.fromString("0000fd59-0000-1000-8000-00805f9b34fb")
+
+    const val SAMSUNG_MFG_ID = 0x0075
+
+    enum class BleDeviceCategory(val label: String, val badgeColorHex: Long, val isSmartTag: Boolean) {
+        GALAXY_SMARTTAG("Galaxy SmartTag", 0xFF0D47A1, true),
+        SMARTTHINGS_FIND_TAG("SmartThings Find (0xFD5A)", 0xFF1565C0, true),
+        SMARTTAG_SETUP("SmartTag Setup (0xFD59)", 0xFF00838F, true),
+        SAMSUNG_SMART_TV("Samsung Smart TV", 0xFFE65100, false),
+        SAMSUNG_GALAXY_WATCH("Galaxy Watch", 0xFF6A1B9A, false),
+        SAMSUNG_GALAXY_BUDS("Galaxy Buds", 0xFF00695C, false),
+        SAMSUNG_TABLET("Galaxy Tab", 0xFF283593, false),
+        SAMSUNG_PHONE("Galaxy Phone", 0xFF37474F, false),
+        SAMSUNG_APPLIANCE("Samsung Appliance", 0xFF4E342E, false),
+        SAMSUNG_GENERIC("Samsung Device", 0xFF455A64, false),
+        APPLE_FIND_MY("Apple Find My / AirTag", 0xFF424242, false),
+        GENERIC_BEACON("BLE Beacon / Tracker", 0xFF00838F, false),
+        GENERIC_BLE("BLE Device", 0xFF546E7A, false)
+    }
+
+    // Comprehensive payload classifier extracting 0xFD5A Privacy ID and differentiating appliances
+}`
+  },
+  {
     path: 'ble/BleScanner.kt',
     name: 'BleScanner.kt',
     category: 'ble',

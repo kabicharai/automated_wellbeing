@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Robust Android BLE Scanner for Android 16 (API 36) down to API 29.
- * Emits reactive device discovery updates and handles hardware capability checks.
+ * Emits reactive device discovery updates with Samsung SmartTag & appliance classification.
  */
 class BleScanner(
     private val context: Context,
@@ -220,18 +220,6 @@ class BleScanner(
             serviceDataMap[parcelUuid.uuid] = data
         }
 
-        // Build Stable Device ID
-        val rawAddress = device.address
-        val rawName = record?.deviceName ?: device.name
-
-        val bleDeviceId = BleDeviceId.createFromScan(
-            address = rawAddress,
-            name = rawName,
-            manufacturerId = primaryMfgId,
-            manufacturerData = primaryMfgData,
-            serviceUuids = serviceUuids
-        )
-
         // Raw hex bytes representation
         val rawBytes = record?.bytes
         val rawBytesHex = rawBytes?.joinToString("") { "%02X".format(it) } ?: ""
@@ -247,42 +235,72 @@ class BleScanner(
             timestampNanos = result.timestampNanos
         )
 
-        val isSmartTag = rawAd.isSamsungManufacturer || 
-                         (rawName != null && rawName.contains("SmartTag", ignoreCase = true)) ||
-                         (rawName != null && rawName.contains("Galaxy", ignoreCase = true))
+        val rawAddress = device.address
+        val rawName = record?.deviceName ?: device.name
+
+        // Classify device using comprehensive Samsung & BLE Classifier
+        val classification = SamsungDeviceClassifier.classify(
+            rawName = rawName,
+            rawAddress = rawAddress,
+            rawAd = rawAd
+        )
+
+        // Build Stable Device ID using smart tag privacy ID or hardware MAC
+        val bleDeviceId = BleDeviceId.createFromScan(
+            address = rawAddress,
+            name = classification.displayName,
+            manufacturerId = primaryMfgId,
+            manufacturerData = primaryMfgData,
+            serviceUuids = serviceUuids,
+            smartTagPrivacyId = classification.offlineFindingPrivacyId
+        )
 
         val key = bleDeviceId.primaryKey
         val existing = deviceMap[key]
 
         val updatedDevice = if (existing != null) {
+            val mergedName = if (!rawName.isNullOrBlank()) rawName else existing.name
             existing.copy(
-                name = rawName ?: existing.name,
+                name = if (mergedName.isNotBlank()) mergedName else classification.displayName,
                 currentRssi = rssi,
                 lastSeenMillis = now,
                 totalSamples = existing.totalSamples + 1,
                 advertisement = rawAd,
-                isSmartTagCandidate = isSmartTag || existing.isSmartTagCandidate
+                isSmartTagCandidate = classification.isSmartTag,
+                categoryLabel = classification.category.label,
+                categoryBadgeColor = classification.category.badgeColorHex,
+                offlineFindingPrivacyId = classification.offlineFindingPrivacyId ?: existing.offlineFindingPrivacyId,
+                tagStatus = classification.tagStatusDescription ?: existing.tagStatus,
+                subtitle = classification.subtitle
             )
         } else {
             BleDiscoveredDevice(
                 deviceId = bleDeviceId,
-                name = rawName ?: (if (isSmartTag) "Samsung SmartTag (Unresolved Name)" else "BLE Beacon / Device"),
+                name = classification.displayName,
                 address = rawAddress ?: "",
                 currentRssi = rssi,
                 firstSeenMillis = now,
                 lastSeenMillis = now,
                 totalSamples = 1,
                 advertisement = rawAd,
-                isSmartTagCandidate = isSmartTag
+                isSmartTagCandidate = classification.isSmartTag,
+                categoryLabel = classification.category.label,
+                categoryBadgeColor = classification.category.badgeColorHex,
+                offlineFindingPrivacyId = classification.offlineFindingPrivacyId,
+                tagStatus = classification.tagStatusDescription,
+                subtitle = classification.subtitle
             )
         }
 
         deviceMap[key] = updatedDevice
 
-        // Sort: recently active first, then highest RSSI
+        // Sort: real SmartTags first, then recently active, then highest RSSI
         val sortedList = deviceMap.values
-            .sortedWith(compareByDescending<BleDiscoveredDevice> { it.isRecentlyActive }
-                .thenByDescending { it.currentRssi })
+            .sortedWith(
+                compareByDescending<BleDiscoveredDevice> { it.isSmartTagCandidate }
+                    .thenByDescending { it.isRecentlyActive }
+                    .thenByDescending { it.currentRssi }
+            )
 
         _scannerState.value = _scannerState.value.copy(
             discoveredDevices = sortedList,

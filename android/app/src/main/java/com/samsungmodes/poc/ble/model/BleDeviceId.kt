@@ -6,12 +6,12 @@ import java.util.UUID
  * Stable device identity abstraction.
  * Android 12+ privacy protections and MAC randomization may alter hardware addresses over time.
  * This abstraction evaluates the most reliable combination of:
- * - Manufacturer ID (e.g., 0x0075 for Samsung, 0x004C for Apple)
- * - Specific manufacturer data payload (e.g. SmartTag payload signature)
- * - Advertised Service UUIDs
- * - Service Data bytes
- * - Advertised local name
+ * - Offline Finding Privacy ID (for Samsung Galaxy SmartTags with 0xFD5A)
  * - Device MAC address (when available)
+ * - Manufacturer ID (e.g., 0x0075 for Samsung, 0x004C for Apple)
+ * - Specific manufacturer data payload
+ * - Advertised Service UUIDs
+ * - Advertised local name
  */
 data class BleDeviceId(
     val primaryKey: String,
@@ -22,6 +22,7 @@ data class BleDeviceId(
     val identityType: IdentityType = IdentityType.COMBINED_SIGNATURE
 ) {
     enum class IdentityType {
+        SMARTTAG_PRIVACY_ID,
         MAC_ADDRESS,
         MANUFACTURER_SIGNATURE,
         SERVICE_UUID,
@@ -53,11 +54,14 @@ data class BleDeviceId(
             name: String?,
             manufacturerId: Int?,
             manufacturerData: ByteArray?,
-            serviceUuids: List<UUID>
+            serviceUuids: List<UUID>,
+            smartTagPrivacyId: String? = null
         ): BleDeviceId {
             val keyBuilder = StringBuilder()
-            
-            if (!address.isNullOrBlank()) {
+
+            if (!smartTagPrivacyId.isNullOrBlank()) {
+                keyBuilder.append("smarttag:").append(smartTagPrivacyId)
+            } else if (!address.isNullOrBlank()) {
                 keyBuilder.append("addr:").append(address)
             } else if (manufacturerId != null) {
                 keyBuilder.append("mfg:0x").append(Integer.toHexString(manufacturerId))
@@ -78,6 +82,7 @@ data class BleDeviceId(
                 deviceName = name,
                 macAddress = address,
                 identityType = when {
+                    !smartTagPrivacyId.isNullOrBlank() -> IdentityType.SMARTTAG_PRIVACY_ID
                     !address.isNullOrBlank() -> IdentityType.MAC_ADDRESS
                     manufacturerId != null -> IdentityType.MANUFACTURER_SIGNATURE
                     serviceUuids.isNotEmpty() -> IdentityType.SERVICE_UUID

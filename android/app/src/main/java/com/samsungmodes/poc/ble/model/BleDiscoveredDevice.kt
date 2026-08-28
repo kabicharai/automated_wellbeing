@@ -12,7 +12,12 @@ data class BleDiscoveredDevice(
     val lastSeenMillis: Long = System.currentTimeMillis(),
     val totalSamples: Int = 1,
     val advertisement: BleRawAdvertisement = BleRawAdvertisement(),
-    val isSmartTagCandidate: Boolean = false
+    val isSmartTagCandidate: Boolean = false,
+    val categoryLabel: String = "BLE Device",
+    val categoryBadgeColor: Long = 0xFF546E7A,
+    val offlineFindingPrivacyId: String? = null,
+    val tagStatus: String? = null,
+    val subtitle: String = ""
 ) {
     val isRecentlyActive: Boolean
         get() = (System.currentTimeMillis() - lastSeenMillis) < 8000L

@@ -240,21 +240,43 @@ class ProximityEngine(
                 val filtered = rssiFilter.getCurrentFilteredValue()
                 val raw = recentSamplesWindow.lastOrNull()
 
-                // Check for beacon signal timeout (Lost Beacon)
+                // Check for beacon signal timeout (Lost Beacon / Out of Range)
                 val secondsSinceLast = if (lastSampleTimestampMillis > 0) {
                     ((now - lastSampleTimestampMillis) / 1000).toInt()
                 } else 999
 
                 val isLost = secondsSinceLast >= _snapshot.value.lostTimeoutSeconds
 
-                if (isLost && currentState != ProximityState.UNKNOWN) {
-                    // In INSIDE or OUTSIDE, if beacon disappears completely for longer than timeout,
-                    // gracefully transition to UNKNOWN to avoid phantom activations
-                    val prev = currentState
-                    currentState = ProximityState.UNKNOWN
-                    candidateStatus = CandidateStatus.NONE
-                    lastStateChangeTimestampMillis = now
-                    recordEvent(prev, ProximityState.UNKNOWN, CandidateStatus.NONE, "Beacon signal lost for ${secondsSinceLast}s (timeout: ${_snapshot.value.lostTimeoutSeconds}s). Gracefully transitioning to UNKNOWN.")
+                if (isLost) {
+                    if (currentState == ProximityState.INSIDE) {
+                        // User was INSIDE and beacon signal disappeared (moved out of range quickly).
+                        // Transition directly to OUTSIDE to safely turn off active mode.
+                        val prev = currentState
+                        currentState = ProximityState.OUTSIDE
+                        candidateStatus = CandidateStatus.NONE
+                        lastStateChangeTimestampMillis = now
+                        recordEvent(
+                            prev,
+                            ProximityState.OUTSIDE,
+                            CandidateStatus.NONE,
+                            "Beacon out of range (Signal lost for ${secondsSinceLast}s >= timeout ${_snapshot.value.lostTimeoutSeconds}s). Exited zone to OUTSIDE."
+                        )
+                    } else if (candidateStatus == CandidateStatus.EXITING) {
+                        // Exiting candidate was underway and signal vanished completely: complete exit immediately
+                        val prev = currentState
+                        currentState = ProximityState.OUTSIDE
+                        candidateStatus = CandidateStatus.NONE
+                        lastStateChangeTimestampMillis = now
+                        recordEvent(
+                            prev,
+                            ProximityState.OUTSIDE,
+                            CandidateStatus.NONE,
+                            "Signal dropped completely during exit verification. Exited zone to OUTSIDE."
+                        )
+                    } else if (candidateStatus == CandidateStatus.ENTERING) {
+                        // Signal lost while entering: cancel candidate
+                        candidateStatus = CandidateStatus.NONE
+                    }
                 } else {
                     checkCandidateCompletion(now, filtered, raw)
                 }

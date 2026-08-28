@@ -78,11 +78,15 @@ export const ProximityStateView: React.FC<ProximityStateViewProps> = ({
         const currentLostSec = secondsSinceLastPacketRef.current;
         setSecondsSinceLastPacket(currentLostSec);
 
-        if (currentLostSec >= lostTimeout && stateRef.current !== 'UNKNOWN') {
+        if (currentLostSec >= lostTimeout) {
           const prevSt = stateRef.current;
-          setCurrentState('UNKNOWN');
-          setCandidateStatus('NONE');
-          recordEvent(prevSt, 'UNKNOWN', 'NONE', `Beacon signal timeout (${lostTimeout}s without packets). Transitioned to UNKNOWN.`);
+          if (prevSt === 'INSIDE' || candidateStatusRef.current === 'EXITING') {
+            setCurrentState('OUTSIDE');
+            setCandidateStatus('NONE');
+            recordEvent(prevSt, 'OUTSIDE', 'NONE', `Beacon out of range (Signal lost for ${Math.round(currentLostSec)}s >= timeout ${lostTimeout}s). Exited zone to OUTSIDE.`);
+          } else if (candidateStatusRef.current === 'ENTERING') {
+            setCandidateStatus('NONE');
+          }
         }
         return;
       }

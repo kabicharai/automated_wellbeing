@@ -292,8 +292,8 @@ class ProximityAutomationController(
                 }
             }
 
-            // INSIDE → OUTSIDE
-            event.toState == ProximityState.OUTSIDE && event.fromState == ProximityState.INSIDE -> {
+            // ANY → OUTSIDE (e.g. INSIDE → OUTSIDE or Out of Range timeout)
+            event.toState == ProximityState.OUTSIDE && event.fromState != ProximityState.OUTSIDE -> {
                 coroutineScope.launch {
                     dispatchModeAction(isStart = false, uuid = uuid, retryCount = 0)
                 }

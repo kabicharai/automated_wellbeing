@@ -8,26 +8,32 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import com.samsungmodes.poc.ble.model.BleDeviceId
 import com.samsungmodes.poc.ble.model.BleDiscoveredDevice
 import com.samsungmodes.poc.ble.model.BleRawAdvertisement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Robust Android BLE Scanner for Android 16 (API 36) down to API 29.
- * Emits reactive device discovery updates with Samsung SmartTag & appliance classification.
+ * Includes Watchdog keep-alive, anti-throttling gentle scan refresh,
+ * and automatic radio failure recovery.
  */
 class BleScanner(
     private val context: Context,
@@ -46,7 +52,12 @@ class BleScanner(
         val scanMode: ScanModePreference = ScanModePreference.BALANCED,
         val discoveredDevices: List<BleDiscoveredDevice> = emptyList(),
         val errorMessage: String? = null,
-        val totalPacketsReceived: Long = 0L
+        val totalPacketsReceived: Long = 0L,
+        val lastPacketTimeMillis: Long = 0L,
+        val watchdogRestartsCount: Int = 0,
+        val isWatchdogActive: Boolean = true,
+        val autoRecoverEnabled: Boolean = true,
+        val isBackgroundServiceRunning: Boolean = false
     )
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -58,6 +69,34 @@ class BleScanner(
 
     private val deviceMap = ConcurrentHashMap<String, BleDiscoveredDevice>()
     private var totalPackets: Long = 0L
+    private var lastPacketTimestamp: Long = 0L
+    private var watchdogJob: Job? = null
+    private var isIntentReceiverRegistered = false
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            if (intent?.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                when (state) {
+                    BluetoothAdapter.STATE_ON -> {
+                        updateBluetoothAndPermissionStatus()
+                        if (_scannerState.value.isScanning || _scannerState.value.autoRecoverEnabled) {
+                            coroutineScope.launch(Dispatchers.Main) {
+                                delay(1000)
+                                startScan()
+                            }
+                        }
+                    }
+                    BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
+                        _scannerState.value = _scannerState.value.copy(
+                            isBluetoothEnabled = false,
+                            errorMessage = "Bluetooth was turned off"
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
@@ -71,7 +110,7 @@ class BleScanner(
         override fun onScanFailed(errorCode: Int) {
             val message = when (errorCode) {
                 SCAN_FAILED_ALREADY_STARTED -> "Scan already started"
-                SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "App registration failed with BLE stack"
+                SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "App registration failed with BLE stack (Retrying...)"
                 SCAN_FAILED_FEATURE_UNSUPPORTED -> "BLE Scan feature unsupported on this device"
                 SCAN_FAILED_INTERNAL_ERROR -> "Internal Bluetooth controller error"
                 else -> "BLE scan failed with error code: $errorCode"
@@ -80,11 +119,34 @@ class BleScanner(
                 isScanning = false,
                 errorMessage = message
             )
+
+            // Auto-recover from transient BLE stack registration errors
+            if (_scannerState.value.autoRecoverEnabled && 
+                (errorCode == SCAN_FAILED_APPLICATION_REGISTRATION_FAILED || errorCode == SCAN_FAILED_INTERNAL_ERROR)) {
+                coroutineScope.launch(Dispatchers.Main) {
+                    delay(2000)
+                    if (_scannerState.value.autoRecoverEnabled) {
+                        startScan()
+                    }
+                }
+            }
         }
     }
 
     init {
         updateBluetoothAndPermissionStatus()
+        registerBluetoothStateReceiver()
+    }
+
+    private fun registerBluetoothStateReceiver() {
+        if (!isIntentReceiverRegistered) {
+            try {
+                val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+                context.registerReceiver(bluetoothStateReceiver, filter)
+                isIntentReceiverRegistered = true
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun updateBluetoothAndPermissionStatus() {
@@ -110,10 +172,22 @@ class BleScanner(
     fun setScanMode(mode: ScanModePreference) {
         _scannerState.value = _scannerState.value.copy(scanMode = mode)
         if (_scannerState.value.isScanning) {
-            // Restart scan with new settings
             stopScan()
             startScan()
         }
+    }
+
+    fun setAutoRecoverEnabled(enabled: Boolean) {
+        _scannerState.value = _scannerState.value.copy(autoRecoverEnabled = enabled)
+        if (enabled && _scannerState.value.isScanning) {
+            startWatchdog()
+        } else if (!enabled) {
+            stopWatchdog()
+        }
+    }
+
+    fun setBackgroundServiceRunning(isRunning: Boolean) {
+        _scannerState.value = _scannerState.value.copy(isBackgroundServiceRunning = isRunning)
     }
 
     fun clearDevices() {
@@ -155,7 +229,7 @@ class BleScanner(
             .setReportDelay(0)
             .build()
 
-        val filters = mutableListOf<ScanFilter>() // Open scanning for all nearby devices
+        val filters = mutableListOf<ScanFilter>()
 
         return try {
             leScanner?.startScan(filters, settings, scanCallback)
@@ -163,6 +237,7 @@ class BleScanner(
                 isScanning = true,
                 errorMessage = null
             )
+            startWatchdog()
             true
         } catch (e: Exception) {
             _scannerState.value = _scannerState.value.copy(
@@ -175,6 +250,7 @@ class BleScanner(
 
     @SuppressLint("MissingPermission")
     fun stopScan() {
+        stopWatchdog()
         try {
             if (_scannerState.value.isScanning) {
                 leScanner?.stopScan(scanCallback)
@@ -185,6 +261,67 @@ class BleScanner(
         }
     }
 
+    /**
+     * Intelligent Watchdog:
+     * 1. Performs an anti-throttling scan refresh every 3 minutes (180s) to reset Android's
+     *    10-minute continuous scan limit.
+     * 2. Detects packet stagnation: if 0 packets received for > 20s while scanning, restarts scan.
+     */
+    private fun startWatchdog() {
+        stopWatchdog()
+        if (!_scannerState.value.autoRecoverEnabled) return
+
+        _scannerState.value = _scannerState.value.copy(isWatchdogActive = true)
+
+        watchdogJob = coroutineScope.launch(Dispatchers.Default) {
+            var cycleTimerSeconds = 0
+            while (isActive) {
+                delay(5000L)
+                cycleTimerSeconds += 5
+
+                if (!_scannerState.value.isScanning) break
+
+                val now = System.currentTimeMillis()
+                val silenceDuration = if (lastPacketTimestamp > 0) now - lastPacketTimestamp else 0L
+
+                // Condition 1: Anti-throttling refresh cycle every 3 minutes (180s)
+                val isAntiThrottleCycleDue = cycleTimerSeconds >= 180
+
+                // Condition 2: Silence stall detection (> 20s of total packet silence while scanning)
+                val isSilenceStallDetected = lastPacketTimestamp > 0 && silenceDuration > 20000L
+
+                if (isAntiThrottleCycleDue || isSilenceStallDetected) {
+                    cycleTimerSeconds = 0
+                    val restarts = _scannerState.value.watchdogRestartsCount + 1
+                    _scannerState.value = _scannerState.value.copy(watchdogRestartsCount = restarts)
+
+                    // Perform gentle non-blocking scan bounce
+                    try {
+                        leScanner?.stopScan(scanCallback)
+                    } catch (_: Exception) {
+                    }
+                    delay(300L)
+                    try {
+                        val settings = ScanSettings.Builder()
+                            .setScanMode(_scannerState.value.scanMode.scanModeInt)
+                            .setReportDelay(0)
+                            .build()
+                        leScanner = bluetoothAdapter?.bluetoothLeScanner
+                        leScanner?.startScan(emptyList(), settings, scanCallback)
+                        lastPacketTimestamp = System.currentTimeMillis()
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = null
+        _scannerState.value = _scannerState.value.copy(isWatchdogActive = false)
+    }
+
     private fun handleScanResult(result: ScanResult) {
         val record = result.scanRecord
         val device = result.device
@@ -192,6 +329,7 @@ class BleScanner(
         val now = System.currentTimeMillis()
 
         totalPackets++
+        lastPacketTimestamp = now
 
         // Extract manufacturer data
         val mfgMap = mutableMapOf<Int, ByteArray>()
@@ -304,7 +442,9 @@ class BleScanner(
 
         _scannerState.value = _scannerState.value.copy(
             discoveredDevices = sortedList,
-            totalPacketsReceived = totalPackets
+            totalPacketsReceived = totalPackets,
+            lastPacketTimeMillis = now
         )
     }
 }
+

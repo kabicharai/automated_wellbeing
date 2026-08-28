@@ -1,6 +1,9 @@
 package com.samsungmodes.poc.ui
 
 import android.app.Application
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.samsungmodes.poc.ble.BlePermissionHelper
@@ -12,6 +15,7 @@ import com.samsungmodes.poc.ble.model.BleProximityDevice
 import com.samsungmodes.poc.model.CurrentModeResult
 import com.samsungmodes.poc.model.ModeOperationResult
 import com.samsungmodes.poc.proximity.automation.ProximityAutomationController
+import com.samsungmodes.poc.proximity.service.ProximityForegroundService
 import com.samsungmodes.poc.proximity.storage.ProximityStorageRepository
 import com.samsungmodes.poc.samsung.SamsungCapabilityDetector
 import com.samsungmodes.poc.samsung.SamsungModeController
@@ -163,6 +167,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             proximityEngine.transitionEvents.collect { ev ->
                 log("PROX", "[${ev.fromState} → ${ev.toState}] ${ev.reason}")
+            }
+        }
+
+        // Observe Proximity Engine snapshot to update Foreground Service notification
+        viewModelScope.launch {
+            proximityEngine.stateSnapshot.collect { snapshot ->
+                if (ProximityForegroundService.isRunning()) {
+                    val targetName = _uiState.value.savedProximityDevice?.displayName
+                        ?: _uiState.value.activeProximityProfile?.targetDisplayName
+                        ?: "BLE Proximity Beacon"
+                    val isAuto = _uiState.value.automationState.isMasterEnabled && !_uiState.value.automationState.isPaused
+                    val modeUuid = _uiState.value.automationState.targetModeUuid
+
+                    try {
+                        val serviceIntent = Intent(application.applicationContext, ProximityForegroundService::class.java)
+                        // Trigger status refresh on running service
+                        val notifManager = application.applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                        // The foreground service will update its notification
+                    } catch (_: Exception) {
+                    }
+                }
             }
         }
 

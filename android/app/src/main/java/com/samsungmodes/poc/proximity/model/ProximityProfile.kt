@@ -127,7 +127,7 @@ data class ProximityProfile(
     val filterType: RssiFilterType = RssiFilterType.EMA,
     val filterSmoothingParam: Double = 0.25, // Alpha for EMA or measurement variance for Kalman
     val windowSampleSize: Int = 15,
-    val lostDeviceTimeoutSeconds: Int = 30,
+    val lostDeviceTimeoutSeconds: Int = 8,
     val boundSamsungModeUuid: String = "",
     val isEnabled: Boolean = false,
     val createdAtMillis: Long = System.currentTimeMillis()

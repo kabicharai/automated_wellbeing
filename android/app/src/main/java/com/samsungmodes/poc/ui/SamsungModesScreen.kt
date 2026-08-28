@@ -171,7 +171,7 @@ private fun SamsungModesContent(
                     InfoRow(label = "ONE UI", value = state.oneUiVersion.ifEmpty { "Detecting..." })
                     InfoRow(label = "MODES & ROUTINES", value = "${state.routinesVersionName} (${state.routinesVersionCode})")
                     
-                    Divider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -333,7 +333,7 @@ private fun SamsungModesContent(
                         }
                     }
 
-                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                     Button(
                         onClick = { viewModel.runFullTest() },
@@ -463,7 +463,7 @@ private fun LogBottomSection(
             }
         }
 
-        Divider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 2.dp))
+        HorizontalDivider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 2.dp))
 
         LazyColumn(
             state = listState,

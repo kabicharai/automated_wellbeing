@@ -1,7 +1,6 @@
 package com.samsungmodes.poc.ui.ble
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -182,18 +181,25 @@ fun BleScannerTab(
                 onValueChange = { filterText = it },
                 placeholder = { Text("Filter devices...", fontSize = 12.sp) },
                 singleLine = true,
-                modifier = Modifier.weight(1f),
-                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
+                modifier = Modifier.weight(1f)
             )
 
-            FilterChip(
-                selected = filterOnlySmartTags,
-                onClick = { filterOnlySmartTags = !filterOnlySmartTags },
-                label = { Text("SmartTag", fontSize = 10.sp) },
-                leadingIcon = if (filterOnlySmartTags) {
-                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                } else null
-            )
+            OutlinedIconToggleButton(
+                checked = filterOnlySmartTags,
+                onCheckedChange = { filterOnlySmartTags = it },
+                modifier = Modifier.height(48.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (filterOnlySmartTags) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                    }
+                    Text("SmartTag", fontSize = 11.sp, fontWeight = if (filterOnlySmartTags) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
 
             IconButton(onClick = { viewModel.clearDiscoveredDevices() }) {
                 Icon(Icons.Default.Delete, contentDescription = "Clear List", tint = MaterialTheme.colorScheme.error)

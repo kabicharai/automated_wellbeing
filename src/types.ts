@@ -23,7 +23,7 @@ export interface DeviceInfo {
 export interface LogEntry {
   id: string;
   timestamp: string;
-  level: 'SYSTEM' | 'DETECT' | 'DIAG' | 'ACTION' | 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR' | 'TEST' | 'QUERY';
+  level: 'SYSTEM' | 'DETECT' | 'DIAG' | 'ACTION' | 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR' | 'TEST' | 'QUERY' | 'BLE';
   message: string;
 }
 
@@ -32,8 +32,65 @@ export type FullTestOutcome = 'IDLE' | 'RUNNING' | 'PASS' | 'PARTIAL PASS' | 'FA
 export interface AndroidSourceFile {
   path: string;
   name: string;
-  category: 'samsung' | 'ui' | 'restriction' | 'model' | 'config' | 'doc';
+  category: 'samsung' | 'ble' | 'ui' | 'restriction' | 'model' | 'config' | 'doc';
   language: 'kotlin' | 'xml' | 'gradle' | 'markdown';
   content: string;
   description: string;
+}
+
+// --- Phase 1: BLE & RSSI Types ---
+
+export type BleScanMode = 'BALANCED' | 'LOW_LATENCY' | 'LOW_POWER';
+
+export interface BleRawAdvertisement {
+  advertiseFlags: number;
+  txPowerLevel: number | null;
+  manufacturerDataMap: Record<number, string>; // mfgId -> hex payload
+  serviceUuids: string[];
+  serviceDataMap: Record<string, string>;
+  rawBytesHex: string;
+  isConnectable: boolean;
+  primaryPhy: string;
+  timestampNanos: number;
+}
+
+export interface BleDiscoveredDevice {
+  primaryKey: string;
+  name: string;
+  address: string;
+  currentRssi: number;
+  firstSeenMillis: number;
+  lastSeenMillis: number;
+  totalSamples: number;
+  isSmartTagCandidate: boolean;
+  advertisement: BleRawAdvertisement;
+}
+
+export interface RssiSample {
+  timestampMillis: number;
+  rssi: number;
+}
+
+export type RssiHistoryWindow = '5s' | '15s' | '30s' | '60s' | '5m';
+
+export interface RssiSnapshot {
+  currentRssi: number | null;
+  sampleCount: number;
+  average: number | null;
+  median: number | null;
+  min: number | null;
+  max: number | null;
+  standardDeviation: number | null;
+  historySamples: RssiSample[];
+}
+
+export interface BleDeviceProfile {
+  id: string;
+  displayName: string;
+  deviceType: 'SAMSUNG_SMARTTAG_1' | 'GENERIC_BEACON' | 'IBEACON' | 'EDDYSTONE' | 'CUSTOM_BLE';
+  primaryKey: string;
+  macAddress: string;
+  targetManufacturerId: number | null;
+  createdAtMillis: number;
+  notes: string;
 }

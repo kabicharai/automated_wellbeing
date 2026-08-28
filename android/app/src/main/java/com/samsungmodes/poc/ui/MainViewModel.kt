@@ -3,6 +3,11 @@ package com.samsungmodes.poc.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.samsungmodes.poc.ble.BleScanner
+import com.samsungmodes.poc.ble.RssiTracker
+import com.samsungmodes.poc.ble.model.BleDeviceProfile
+import com.samsungmodes.poc.ble.model.BleDiscoveredDevice
+import com.samsungmodes.poc.ble.model.BleProximityDevice
 import com.samsungmodes.poc.model.CurrentModeResult
 import com.samsungmodes.poc.model.ModeOperationResult
 import com.samsungmodes.poc.samsung.SamsungCapabilityDetector
@@ -16,6 +21,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 data class UiLogEntry(
     val timestamp: String,
@@ -44,13 +50,23 @@ data class MainUiState(
     val testState: FullTestState = FullTestState.Idle,
     val isActionInProgress: Boolean = false,
     val lastOperationResult: ModeOperationResult? = null,
-    val logs: List<UiLogEntry> = emptyList()
+    val logs: List<UiLogEntry> = emptyList(),
+    
+    // Phase 1 BLE & RSSI State
+    val scannerState: BleScanner.ScannerState = BleScanner.ScannerState(),
+    val inspectedDevice: BleDiscoveredDevice? = null,
+    val savedProximityDevice: BleDeviceProfile? = null,
+    val activeRssiSnapshot: RssiTracker.RssiSnapshot = RssiTracker.RssiSnapshot(null, 0, null, null, null, null, null, emptyList()),
+    val selectedRssiWindow: RssiTracker.HistoryWindow = RssiTracker.HistoryWindow.WINDOW_30S
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val capabilityDetector = SamsungCapabilityDetector(application.applicationContext)
     private var controller: SamsungModeController
+    
+    val bleScanner = BleScanner(application.applicationContext, viewModelScope)
+    private val rssiTracker = RssiTracker(maxCapacity = 2000)
     
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -82,6 +98,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         readCurrentMode()
+
+        // Observe BLE Scanner state and update RSSI tracker for the tracked device
+        viewModelScope.launch {
+            bleScanner.scannerState.collect { scanState ->
+                _uiState.value = _uiState.value.copy(scannerState = scanState)
+
+                // If a proximity device or inspected device is active, feed RSSI tracker
+                val trackedKey = _uiState.value.savedProximityDevice?.deviceId?.primaryKey
+                    ?: _uiState.value.inspectedDevice?.deviceId?.primaryKey
+
+                if (trackedKey != null) {
+                    val matchingDevice = scanState.discoveredDevices.find { it.deviceId.primaryKey == trackedKey }
+                    if (matchingDevice != null) {
+                        rssiTracker.addSample(matchingDevice.currentRssi)
+                        _uiState.value = _uiState.value.copy(
+                            activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Phase 1 BLE & RSSI Operations ---
+
+    fun startBleScan() {
+        log("BLE", "Starting BLE Scan (Mode: ${_uiState.value.scannerState.scanMode.displayName})...")
+        val started = bleScanner.startScan()
+        if (started) {
+            log("BLE", "BLE Scan started successfully.")
+        } else {
+            val err = bleScanner.scannerState.value.errorMessage ?: "Unknown error"
+            log("ERROR", "Failed to start BLE Scan: $err")
+        }
+    }
+
+    fun stopBleScan() {
+        bleScanner.stopScan()
+        log("BLE", "BLE Scan stopped.")
+    }
+
+    fun setScanMode(mode: BleScanner.ScanModePreference) {
+        bleScanner.setScanMode(mode)
+        log("BLE", "BLE Scan mode updated to: ${mode.displayName}")
+    }
+
+    fun clearDiscoveredDevices() {
+        bleScanner.clearDevices()
+        rssiTracker.clear()
+        _uiState.value = _uiState.value.copy(
+            activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
+        )
+        log("BLE", "Cleared discovered device list and RSSI history.")
+    }
+
+    fun inspectDevice(device: BleDiscoveredDevice) {
+        _uiState.value = _uiState.value.copy(inspectedDevice = device)
+        rssiTracker.clear()
+        rssiTracker.addSample(device.currentRssi)
+        _uiState.value = _uiState.value.copy(
+            activeRssiSnapshot = rssiTracker.getSnapshot(_uiState.value.selectedRssiWindow)
+        )
+        log("BLE", "Inspecting BLE Device: ${device.name} (${device.formattedAddress}) [RSSI: ${device.currentRssi} dBm]")
+    }
+
+    fun saveAsProximityDevice(device: BleDiscoveredDevice) {
+        val deviceType = when {
+            device.isSmartTagCandidate -> BleProximityDevice.DeviceType.SAMSUNG_SMARTTAG_1
+            device.advertisement.serviceUuids.isNotEmpty() -> BleProximityDevice.DeviceType.GENERIC_BEACON
+            else -> BleProximityDevice.DeviceType.CUSTOM_BLE
+        }
+
+        val profile = BleDeviceProfile(
+            id = UUID.randomUUID().toString(),
+            displayName = device.name.ifBlank { "Proximity Beacon" },
+            deviceType = deviceType,
+            deviceId = device.deviceId,
+            targetMacAddress = device.address,
+            targetManufacturerId = device.deviceId.manufacturerId
+        )
+
+        _uiState.value = _uiState.value.copy(savedProximityDevice = profile)
+        log("BLE", "SAVED PROXIMITY DEVICE: ${profile.displayName} [Type: ${profile.deviceType}, Key: ${profile.deviceId.primaryKey}]")
+    }
+
+    fun setRssiHistoryWindow(window: RssiTracker.HistoryWindow) {
+        _uiState.value = _uiState.value.copy(
+            selectedRssiWindow = window,
+            activeRssiSnapshot = rssiTracker.getSnapshot(window)
+        )
+        log("BLE", "Updated RSSI graph history window to: ${window.label}")
     }
 
     fun selectBackend(backend: String) {

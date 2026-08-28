@@ -34,6 +34,15 @@
     <uses-permission android:name="com.samsung.android.app.routines.permission.LAUNCH_ROUTINE" />
     <uses-permission android:name="com.samsung.android.app.routines.permission.EXTERNAL_PROVIDER" />
 
+    <!-- Bluetooth & BLE Permissions (Android 12+ / Android 16 Support) -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- General Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
 

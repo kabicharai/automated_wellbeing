@@ -621,6 +621,196 @@ class SamsungModesRestrictionController(
 </manifest>`
   },
   {
+    path: 'ble/BleScanner.kt',
+    name: 'BleScanner.kt',
+    category: 'ble',
+    language: 'kotlin',
+    description: 'Android 16 Bluetooth Low Energy scanner using BluetoothLeScanner with reactive StateFlow streams and capability checks.',
+    content: `package com.samsungmodes.poc.ble
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
+import com.samsungmodes.poc.ble.model.BleDeviceId
+import com.samsungmodes.poc.ble.model.BleDiscoveredDevice
+import com.samsungmodes.poc.ble.model.BleRawAdvertisement
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Robust Android BLE Scanner for Android 16 (API 36) down to API 29.
+ * Emits reactive device discovery updates and handles hardware capability checks.
+ */
+class BleScanner(
+    private val context: Context,
+    private val coroutineScope: CoroutineScope
+) {
+    enum class ScanModePreference(val scanModeInt: Int, val displayName: String) {
+        BALANCED(ScanSettings.SCAN_MODE_BALANCED, "Balanced"),
+        LOW_LATENCY(ScanSettings.SCAN_MODE_LOW_LATENCY, "High Reliability (Low Latency)"),
+        LOW_POWER(ScanSettings.SCAN_MODE_LOW_POWER, "Battery Saver (Low Power)")
+    }
+
+    data class ScannerState(
+        val isScanning: Boolean = false,
+        val isBluetoothEnabled: Boolean = false,
+        val hasPermissions: Boolean = false,
+        val scanMode: ScanModePreference = ScanModePreference.BALANCED,
+        val discoveredDevices: List<BleDiscoveredDevice> = emptyList(),
+        val errorMessage: String? = null,
+        val totalPacketsReceived: Long = 0L
+    )
+
+    private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
+    private var leScanner: BluetoothLeScanner? = null
+
+    private val _scannerState = MutableStateFlow(ScannerState())
+    val scannerState: StateFlow<ScannerState> = _scannerState.asStateFlow()
+
+    private val deviceMap = ConcurrentHashMap<String, BleDiscoveredDevice>()
+    private var totalPackets: Long = 0L
+
+    // ... Implementation handles ScanCallback, packet decoding, and device identity matching
+}`
+  },
+  {
+    path: 'ble/RssiTracker.kt',
+    name: 'RssiTracker.kt',
+    category: 'ble',
+    language: 'kotlin',
+    description: 'High-performance rolling RSSI sample tracker with window filters (5s, 15s, 30s, 60s, 5m) and real-time statistics.',
+    content: `package com.samsungmodes.poc.ble
+
+import com.samsungmodes.poc.ble.model.BleRssiSample
+import java.util.ArrayDeque
+import kotlin.math.roundToInt
+
+/**
+ * High-performance, memory-capped rolling RSSI tracker.
+ * Maintains chronological samples and calculates instant, moving average, median, min, and max values.
+ */
+class RssiTracker(
+    private val maxCapacity: Int = 1000
+) {
+    private val samples = ArrayDeque<BleRssiSample>(maxCapacity)
+    private val lock = Any()
+
+    enum class HistoryWindow(val seconds: Int, val label: String) {
+        WINDOW_5S(5, "5s"),
+        WINDOW_15S(15, "15s"),
+        WINDOW_30S(30, "30s"),
+        WINDOW_60S(60, "60s"),
+        WINDOW_300S(300, "5m")
+    }
+
+    data class RssiSnapshot(
+        val currentRssi: Int?,
+        val sampleCount: Int,
+        val average: Double?,
+        val median: Double?,
+        val min: Int?,
+        val max: Int?,
+        val standardDeviation: Double?,
+        val historySamples: List<BleRssiSample>
+    )
+
+    fun addSample(rssi: Int, timestamp: Long = System.currentTimeMillis()) {
+        synchronized(lock) {
+            if (samples.size >= maxCapacity) {
+                samples.removeFirst()
+            }
+            samples.addLast(BleRssiSample(timestampMillis = timestamp, rssi = rssi))
+        }
+    }
+
+    fun clear() {
+        synchronized(lock) {
+            samples.clear()
+        }
+    }
+
+    fun getSnapshot(window: HistoryWindow = HistoryWindow.WINDOW_30S): RssiSnapshot {
+        // ... Computes mean, median (P50), standard deviation, min, and max over configured window
+        return RssiSnapshot(...)
+    }
+}`
+  },
+  {
+    path: 'ble/model/BleDeviceId.kt',
+    name: 'BleDeviceId.kt',
+    category: 'ble',
+    language: 'kotlin',
+    description: 'Stable device identity abstraction resilient to Android 12+ MAC randomization.',
+    content: `package com.samsungmodes.poc.ble.model
+
+import java.util.UUID
+
+data class BleDeviceId(
+    val primaryKey: String,
+    val manufacturerId: Int? = null,
+    val serviceUuids: List<UUID> = emptyList(),
+    val deviceName: String? = null,
+    val macAddress: String? = null,
+    val identityType: IdentityType = IdentityType.COMBINED_SIGNATURE
+) {
+    enum class IdentityType {
+        MAC_ADDRESS,
+        MANUFACTURER_SIGNATURE,
+        SERVICE_UUID,
+        COMBINED_SIGNATURE
+    }
+
+    fun matches(other: BleDeviceId): Boolean {
+        if (primaryKey == other.primaryKey) return true
+        if (!macAddress.isNullOrBlank() && macAddress == other.macAddress) return true
+        if (manufacturerId != null && manufacturerId == other.manufacturerId) {
+            if (serviceUuids.isNotEmpty() && other.serviceUuids.isNotEmpty()) {
+                if (serviceUuids.intersect(other.serviceUuids.toSet()).isNotEmpty()) return true
+            }
+        }
+        return false
+    }
+}`
+  },
+  {
+    path: 'ble/model/BleRawAdvertisement.kt',
+    name: 'BleRawAdvertisement.kt',
+    category: 'ble',
+    language: 'kotlin',
+    description: 'Raw BLE advertisement packet decoder for Samsung SmartTags and generic beacons.',
+    content: `package com.samsungmodes.poc.ble.model
+
+import java.util.UUID
+
+data class BleRawAdvertisement(
+    val advertiseFlags: Int = -1,
+    val txPowerLevel: Int? = null,
+    val manufacturerDataMap: Map<Int, ByteArray> = emptyMap(),
+    val serviceUuids: List<UUID> = emptyList(),
+    val serviceDataMap: Map<UUID, ByteArray> = emptyMap(),
+    val rawBytesHex: String = "",
+    val isConnectable: Boolean = false,
+    val timestampNanos: Long = 0L
+) {
+    val isSamsungManufacturer: Boolean
+        get() = manufacturerDataMap.containsKey(0x0075)
+}`
+  },
+  {
     path: 'app/build.gradle.kts',
     name: 'build.gradle.kts (app)',
     category: 'config',

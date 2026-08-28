@@ -82,7 +82,8 @@ data class MainUiState(
     val savedProfiles: Map<String, com.samsungmodes.poc.proximity.model.ProximityProfile> = emptyMap(),
     val savedDevices: Map<String, BleDeviceProfile> = emptyMap(),
 
-    // Phase 4 Proximity Automation State
+    // Phase 4 & 5 Multi-Device / Multi-Mode Automation State
+    val automationRules: List<com.samsungmodes.poc.proximity.model.AutomationRule> = emptyList(),
     val automationState: ProximityAutomationController.AutomationState = ProximityAutomationController.AutomationState()
 )
 
@@ -218,6 +219,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadPersistentStorage() {
         val savedDevs = storageRepository.getAllSavedDevices()
         val savedProfs = storageRepository.getAllProximityProfiles()
+        val rules = storageRepository.getAllAutomationRules()
         val masterEnabled = storageRepository.isMasterAutomationEnabled()
         val targetModeUuid = storageRepository.getTargetModeUuid()
         val pauseUntil = storageRepository.getPauseUntilMillis()
@@ -231,12 +233,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             savedProfiles = savedProfs,
             savedProximityDevice = activeDevice,
             activeProximityProfile = activeProfile,
+            automationRules = rules,
             modeUuid = if (_uiState.value.modeUuid.isBlank() && targetModeUuid.isNotBlank()) targetModeUuid else _uiState.value.modeUuid
         )
 
         if (activeProfile != null) {
             proximityEngine.updateProfile(activeProfile)
         }
+
+        automationController.setRules(rules)
 
         if (targetModeUuid.isNotBlank()) {
             automationController.setTargetModeUuid(targetModeUuid, activeProfile?.profileName ?: "Target Mode")
@@ -247,10 +252,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             automationController.pauseAutomation(remainMin)
         }
 
-        log("STORAGE", "Loaded ${savedDevs.size} saved BLE devices and ${savedProfs.size} per-device calibration profiles from persistent storage.")
+        log("STORAGE", "Loaded ${savedDevs.size} saved BLE devices, ${savedProfs.size} profiles, and ${rules.size} automation rules from persistent storage.")
     }
 
-    // --- Phase 4 Automation Operations ---
+    // --- Phase 4 & 5 Automation Operations ---
+
+    fun saveAutomationRule(rule: com.samsungmodes.poc.proximity.model.AutomationRule) {
+        storageRepository.saveAutomationRule(rule)
+        val updatedRules = storageRepository.getAllAutomationRules()
+        _uiState.value = _uiState.value.copy(automationRules = updatedRules)
+        automationController.setRules(updatedRules)
+        log("AUTO", "Saved Automation Rule '${rule.name}' [${rule.entryAction} / ${rule.exitAction}]")
+    }
+
+    fun deleteAutomationRule(ruleId: String) {
+        storageRepository.deleteAutomationRule(ruleId)
+        val updatedRules = storageRepository.getAllAutomationRules()
+        _uiState.value = _uiState.value.copy(automationRules = updatedRules)
+        automationController.setRules(updatedRules)
+        log("AUTO", "Deleted Automation Rule ID: $ruleId")
+    }
+
+    fun toggleAutomationRule(ruleId: String, enabled: Boolean) {
+        val existing = _uiState.value.automationRules.find { it.id == ruleId }
+        if (existing != null) {
+            val updated = existing.copy(isEnabled = enabled)
+            saveAutomationRule(updated)
+        }
+    }
 
     fun toggleMasterAutomation(enabled: Boolean) {
         automationController.setMasterEnabled(enabled)
@@ -679,15 +708,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val savedDevice = activeKey?.let { savedDevices[it] } ?: savedDevices.values.firstOrNull()
                 val profiles = storageRepository.getAllProximityProfiles()
                 val profile = activeKey?.let { profiles[it] } ?: profiles.values.firstOrNull()
+                val rules = storageRepository.getAllAutomationRules()
 
                 _uiState.value = _uiState.value.copy(
                     savedDevices = savedDevices,
                     savedProximityDevice = savedDevice,
                     savedProfiles = profiles,
                     activeProximityProfile = profile,
+                    automationRules = rules,
                     modeUuid = storageRepository.getTargetModeUuid()
                 )
-                log("SUCCESS", "Configuration restored successfully from Documents/SamsungModes/samsung_modes_backup.json (${savedDevices.size} devices, ${profiles.size} profiles)")
+                automationController.setRules(rules)
+                log("SUCCESS", "Configuration restored successfully from Documents/SamsungModes/samsung_modes_backup.json (${savedDevices.size} devices, ${profiles.size} profiles, ${rules.size} rules)")
             } else {
                 log("WARN", "No backup found in Documents/SamsungModes/samsung_modes_backup.json")
             }

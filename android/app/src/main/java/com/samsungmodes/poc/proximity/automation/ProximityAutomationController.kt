@@ -2,6 +2,9 @@ package com.samsungmodes.poc.proximity.automation
 
 import com.samsungmodes.poc.model.ModeOperationResult
 import com.samsungmodes.poc.proximity.ProximityEngine
+import com.samsungmodes.poc.proximity.model.AutomationEntryAction
+import com.samsungmodes.poc.proximity.model.AutomationExitAction
+import com.samsungmodes.poc.proximity.model.AutomationRule
 import com.samsungmodes.poc.proximity.model.ProximityState
 import com.samsungmodes.poc.proximity.model.ProximityTransitionEvent
 import com.samsungmodes.poc.samsung.SamsungModeController
@@ -12,23 +15,28 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import java.util.UUID
 
 /**
- * Phase 4 Proximity Automation Controller.
+ * Phase 4 & 5 Proximity Automation Controller.
  *
  * Mediates between ProximityEngine state transitions and SamsungModeController APIs:
- * - OUTSIDE → INSIDE : Calls SamsungModeController.startMode(targetModeUuid)
- * - INSIDE → OUTSIDE : Calls SamsungModeController.stopMode(targetModeUuid)
- * - UNKNOWN : No-op (safety rule: preserves current phone mode without false flips)
- *
- * Guarantees:
- * 1. Zero duplicate calls while in steady state.
- * 2. Minimum debounce cooldown (3 seconds) between consecutive mode changes.
- * 3. Master Automation Switch (ON/OFF) & Pause/Resume override.
- * 4. Controlled retry backoff on Samsung Mode invocation failures.
- * 5. Emergency Stop Mode.
- * 6. Audit trail for diagnostics and UI telemetry.
+ * - Supports Multi-Device and Multi-Mode AutomationRules with custom Entry / Exit triggers:
+ *     - Standard: INSIDE -> Turn ON / OUTSIDE -> Turn OFF
+ *     - Inverted / Safe-Zone: INSIDE -> Turn OFF / OUTSIDE -> Turn ON or Restore
+ *     - One-way: INSIDE -> Turn ON / OUTSIDE -> Do Nothing
+ * - Conflict Priority: When multiple rules match, evaluates according to rule priority (1 = highest).
+ * - Time & Day Constraints: Active time windows per rule.
+ * - Guarantees:
+ *     1. Zero duplicate calls while in steady state.
+ *     2. Minimum debounce cooldown (3 seconds) between consecutive mode changes.
+ *     3. Master Automation Switch (ON/OFF) & Pause/Resume override.
+ *     4. Controlled retry backoff on Samsung Mode invocation failures.
+ *     5. Emergency Stop Mode.
+ *     6. Audit trail for diagnostics and UI telemetry.
  */
 class ProximityAutomationController(
     private val coroutineScope: CoroutineScope,
@@ -40,9 +48,9 @@ class ProximityAutomationController(
         DISABLED("AUTOMATION OFF"),
         IDLE("MONITORING (READY)"),
         TRIGGERING_START("STARTING SAMSUNG MODE..."),
-        START_SUCCESS("MODE ACTIVE (INSIDE)"),
+        START_SUCCESS("MODE ACTIVE"),
         TRIGGERING_STOP("STOPPING SAMSUNG MODE..."),
-        STOP_SUCCESS("MODE INACTIVE (OUTSIDE)"),
+        STOP_SUCCESS("MODE INACTIVE"),
         PAUSED("TEMPORARILY PAUSED"),
         RETRYING("RETRYING INVOCATION..."),
         ERROR("INVOCATION ERROR")
@@ -51,7 +59,7 @@ class ProximityAutomationController(
     data class AutomationState(
         val masterEnabled: Boolean = false,
         val targetModeUuid: String = "",
-        val targetModeName: String = "Bedroom Focus",
+        val targetModeName: String = "Selected Mode",
         val isPaused: Boolean = false,
         val pauseUntilMillis: Long = 0L,
         val executionState: ExecutionState = ExecutionState.DISABLED,
@@ -61,7 +69,10 @@ class ProximityAutomationController(
         val retryCount: Int = 0,
         val totalTransitionsHandled: Int = 0,
         val successfulInvocations: Int = 0,
-        val failedInvocations: Int = 0
+        val failedInvocations: Int = 0,
+        val activeRuleId: String? = null,
+        val activeRules: List<AutomationRule> = emptyList(),
+        val previousModeUuid: String = ""
     ) {
         val isCurrentlyPaused: Boolean
             get() = isPaused && (pauseUntilMillis == 0L || System.currentTimeMillis() < pauseUntilMillis)
@@ -82,7 +93,9 @@ class ProximityAutomationController(
         val toState: ProximityState,
         val targetUuid: String,
         val success: Boolean,
-        val message: String
+        val message: String,
+        val ruleId: String? = null,
+        val ruleName: String? = null
     )
 
     private val _automationState = MutableStateFlow(AutomationState())
@@ -116,6 +129,12 @@ class ProximityAutomationController(
 
     fun updateSamsungModeController(controller: SamsungModeController) {
         this.samsungModeController = controller
+    }
+
+    fun setRules(rules: List<AutomationRule>) {
+        _automationState.value = _automationState.value.copy(
+            activeRules = rules.sortedBy { it.priority }
+        )
     }
 
     fun setMasterEnabled(enabled: Boolean) {
@@ -205,33 +224,41 @@ class ProximityAutomationController(
 
     fun reconcileStateWithCurrentProximity() {
         val currentState = proximityEngine.snapshot.value.state
-        val uuid = _automationState.value.targetModeUuid
-
-        if (!_automationState.value.masterEnabled || _automationState.value.isCurrentlyPaused || uuid.isBlank()) {
+        if (!_automationState.value.masterEnabled || _automationState.value.isCurrentlyPaused) {
             return
         }
+
+        val rule = findActiveRuleForCurrentState()
+        val uuid = rule?.targetModeUuid ?: _automationState.value.targetModeUuid
+        if (uuid.isBlank()) return
 
         coroutineScope.launch {
             when (currentState) {
                 ProximityState.INSIDE -> {
+                    val shouldStart = rule?.entryAction != AutomationEntryAction.TURN_OFF
                     recordAuditEvent(
                         action = "RECONCILE",
                         fromState = currentState,
                         toState = currentState,
                         success = true,
-                        message = "Reconciling state: In INSIDE zone -> Enforcing Mode START"
+                        message = "Reconciling state: In INSIDE zone -> Enforcing Action (${if (shouldStart) "START" else "STOP"})",
+                        ruleId = rule?.id,
+                        ruleName = rule?.name
                     )
-                    dispatchModeAction(isStart = true, uuid = uuid, retryCount = 0)
+                    dispatchModeAction(isStart = shouldStart, uuid = uuid, retryCount = 0, rule = rule)
                 }
                 ProximityState.OUTSIDE -> {
+                    val shouldStart = rule?.exitAction == AutomationExitAction.TURN_ON
                     recordAuditEvent(
                         action = "RECONCILE",
                         fromState = currentState,
                         toState = currentState,
                         success = true,
-                        message = "Reconciling state: In OUTSIDE zone -> Enforcing Mode STOP"
+                        message = "Reconciling state: In OUTSIDE zone -> Enforcing Action (${if (shouldStart) "START" else "STOP"})",
+                        ruleId = rule?.id,
+                        ruleName = rule?.name
                     )
-                    dispatchModeAction(isStart = false, uuid = uuid, retryCount = 0)
+                    dispatchModeAction(isStart = shouldStart, uuid = uuid, retryCount = 0, rule = rule)
                 }
                 ProximityState.UNKNOWN -> {
                     // UNKNOWN does nothing
@@ -240,10 +267,60 @@ class ProximityAutomationController(
         }
     }
 
+    private fun findActiveRuleForCurrentState(): AutomationRule? {
+        val rules = _automationState.value.activeRules.filter { it.isEnabled }
+        if (rules.isEmpty()) return null
+
+        val currentDeviceKey = proximityEngine.activeProfile?.targetDeviceId?.primaryKey
+        // Find rule matching active device
+        val matchingRule = rules.firstOrNull { rule ->
+            currentDeviceKey == null || rule.deviceKey.isBlank() || rule.deviceKey == currentDeviceKey
+        }
+
+        if (matchingRule != null && matchingRule.timeConstraintEnabled) {
+            if (!isWithinTimeWindow(matchingRule.timeStart, matchingRule.timeEnd, matchingRule.daysOfWeek)) {
+                return null
+            }
+        }
+        return matchingRule
+    }
+
+    private fun isWithinTimeWindow(start: String, end: String, days: List<String>): Boolean {
+        try {
+            val cal = Calendar.getInstance()
+            val dayOfWeekStr = when (cal.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> "MON"
+                Calendar.TUESDAY -> "TUE"
+                Calendar.WEDNESDAY -> "WED"
+                Calendar.THURSDAY -> "THU"
+                Calendar.FRIDAY -> "FRI"
+                Calendar.SATURDAY -> "SAT"
+                Calendar.SUNDAY -> "SUN"
+                else -> "MON"
+            }
+            if (days.isNotEmpty() && !days.contains(dayOfWeekStr)) {
+                return false
+            }
+
+            val sdf = SimpleDateFormat("HH:mm", Locale.US)
+            val nowStr = sdf.format(cal.time)
+            val nowTime = sdf.parse(nowStr)?.time ?: return true
+            val startTime = sdf.parse(start)?.time ?: return true
+            val endTime = sdf.parse(end)?.time ?: return true
+
+            return if (endTime >= startTime) {
+                nowTime in startTime..endTime
+            } else {
+                // Crosses midnight (e.g. 22:00 to 07:00)
+                nowTime >= startTime || nowTime <= endTime
+            }
+        } catch (e: Exception) {
+            return true
+        }
+    }
+
     private fun handleProximityTransition(event: ProximityTransitionEvent) {
         val state = _automationState.value
-        val uuid = state.targetModeUuid
-
         _automationState.value = state.copy(
             totalTransitionsHandled = state.totalTransitionsHandled + 1
         )
@@ -258,6 +335,10 @@ class ProximityAutomationController(
             return
         }
 
+        // Find active rule or fallback to global targetModeUuid
+        val rule = findActiveRuleForCurrentState()
+        val uuid = rule?.targetModeUuid ?: state.targetModeUuid
+
         // Rule 3: Target Mode UUID must be configured
         if (uuid.isBlank()) {
             recordAuditEvent(
@@ -265,7 +346,9 @@ class ProximityAutomationController(
                 fromState = event.fromState,
                 toState = event.toState,
                 success = false,
-                message = "Proximity transition [${event.fromState} → ${event.toState}] skipped: No Samsung Mode UUID configured."
+                message = "Proximity transition [${event.fromState} -> ${event.toState}] skipped: No Samsung Mode UUID configured.",
+                ruleId = rule?.id,
+                ruleName = rule?.name
             )
             return
         }
@@ -278,24 +361,82 @@ class ProximityAutomationController(
                 fromState = event.fromState,
                 toState = event.toState,
                 success = true,
-                message = "Proximity transition [${event.fromState} → ${event.toState}] debounced (within ${cooldownMillis}ms cooldown)."
+                message = "Proximity transition [${event.fromState} -> ${event.toState}] debounced (within ${cooldownMillis}ms cooldown).",
+                ruleId = rule?.id,
+                ruleName = rule?.name
             )
             return
         }
 
-        // Rule 5: Transition Action Routing
+        // Rule 5: Transition Action Routing based on Rule Configuration
         when {
-            // OUTSIDE → INSIDE (or UNKNOWN → INSIDE upon stable initial entry)
+            // Entering Proximity (OUTSIDE -> INSIDE or UNKNOWN -> INSIDE)
             event.toState == ProximityState.INSIDE && event.fromState != ProximityState.INSIDE -> {
-                coroutineScope.launch {
-                    dispatchModeAction(isStart = true, uuid = uuid, retryCount = 0)
+                val entryAction = rule?.entryAction ?: AutomationEntryAction.TURN_ON
+                when (entryAction) {
+                    AutomationEntryAction.TURN_ON -> {
+                        coroutineScope.launch {
+                            dispatchModeAction(isStart = true, uuid = uuid, retryCount = 0, rule = rule)
+                        }
+                    }
+                    AutomationEntryAction.TURN_OFF -> {
+                        // Inverted / Exclusion Zone: INSIDE turns mode OFF
+                        coroutineScope.launch {
+                            dispatchModeAction(isStart = false, uuid = uuid, retryCount = 0, rule = rule)
+                        }
+                    }
+                    AutomationEntryAction.NONE -> {
+                        recordAuditEvent(
+                            action = "ENTRY_IGNORED",
+                            fromState = event.fromState,
+                            toState = event.toState,
+                            success = true,
+                            message = "Entered range for rule '${rule?.name ?: "Default"}', but Entry Action is set to NONE.",
+                            ruleId = rule?.id,
+                            ruleName = rule?.name
+                        )
+                    }
                 }
             }
 
-            // ANY → OUTSIDE (e.g. INSIDE → OUTSIDE or Out of Range timeout)
+            // Exiting Proximity (INSIDE -> OUTSIDE or UNKNOWN -> OUTSIDE)
             event.toState == ProximityState.OUTSIDE && event.fromState != ProximityState.OUTSIDE -> {
-                coroutineScope.launch {
-                    dispatchModeAction(isStart = false, uuid = uuid, retryCount = 0)
+                val exitAction = rule?.exitAction ?: AutomationExitAction.TURN_OFF
+                when (exitAction) {
+                    AutomationExitAction.TURN_OFF -> {
+                        coroutineScope.launch {
+                            dispatchModeAction(isStart = false, uuid = uuid, retryCount = 0, rule = rule)
+                        }
+                    }
+                    AutomationExitAction.TURN_ON -> {
+                        // Inverted exit: leaving turns mode ON
+                        coroutineScope.launch {
+                            dispatchModeAction(isStart = true, uuid = uuid, retryCount = 0, rule = rule)
+                        }
+                    }
+                    AutomationExitAction.RESTORE_PREVIOUS -> {
+                        val prevMode = state.previousModeUuid
+                        if (prevMode.isNotBlank()) {
+                            coroutineScope.launch {
+                                dispatchModeAction(isStart = true, uuid = prevMode, retryCount = 0, rule = rule)
+                            }
+                        } else {
+                            coroutineScope.launch {
+                                dispatchModeAction(isStart = false, uuid = uuid, retryCount = 0, rule = rule)
+                            }
+                        }
+                    }
+                    AutomationExitAction.NONE -> {
+                        recordAuditEvent(
+                            action = "EXIT_IGNORED",
+                            fromState = event.fromState,
+                            toState = event.toState,
+                            success = true,
+                            message = "Exited range for rule '${rule?.name ?: "Default"}', but Exit Action is set to NONE.",
+                            ruleId = rule?.id,
+                            ruleName = rule?.name
+                        )
+                    }
                 }
             }
 
@@ -306,21 +447,29 @@ class ProximityAutomationController(
                     fromState = event.fromState,
                     toState = event.toState,
                     success = true,
-                    message = "Signal entered UNKNOWN state: Phone mode preserved without changes."
+                    message = "Signal entered UNKNOWN state: Phone mode preserved without changes.",
+                    ruleId = rule?.id,
+                    ruleName = rule?.name
                 )
             }
         }
     }
 
-    private suspend fun dispatchModeAction(isStart: Boolean, uuid: String, retryCount: Int) {
+    private suspend fun dispatchModeAction(
+        isStart: Boolean,
+        uuid: String,
+        retryCount: Int,
+        rule: AutomationRule? = null
+    ) {
         lastInvocationTimestamp = System.currentTimeMillis()
         val actionName = if (isStart) "START" else "STOP"
 
         _automationState.value = _automationState.value.copy(
             executionState = if (isStart) ExecutionState.TRIGGERING_START else ExecutionState.TRIGGERING_STOP,
-            lastTriggeredTransition = if (isStart) "OUTSIDE → INSIDE ($actionName)" else "INSIDE → OUTSIDE ($actionName)",
+            lastTriggeredTransition = if (isStart) "START MODE ($actionName)" else "STOP MODE ($actionName)",
             lastActionTimestampMillis = System.currentTimeMillis(),
-            retryCount = retryCount
+            retryCount = retryCount,
+            activeRuleId = rule?.id
         )
 
         val result = if (isStart) {
@@ -335,14 +484,17 @@ class ProximityAutomationController(
                     executionState = if (isStart) ExecutionState.START_SUCCESS else ExecutionState.STOP_SUCCESS,
                     successfulInvocations = _automationState.value.successfulInvocations + 1,
                     lastResultDetails = "Verified: ${result.verified} [${result.details}]",
-                    retryCount = 0
+                    retryCount = 0,
+                    previousModeUuid = if (isStart) uuid else ""
                 )
                 recordAuditEvent(
                     action = if (isStart) "START_MODE_SUCCESS" else "STOP_MODE_SUCCESS",
                     fromState = if (isStart) ProximityState.OUTSIDE else ProximityState.INSIDE,
                     toState = if (isStart) ProximityState.INSIDE else ProximityState.OUTSIDE,
                     success = true,
-                    message = "Samsung Mode $actionName dispatched successfully. Verified: ${result.verified} (${result.details})"
+                    message = "Samsung Mode $actionName dispatched successfully [${rule?.name ?: "Rule"}]. Verified: ${result.verified} (${result.details})",
+                    ruleId = rule?.id,
+                    ruleName = rule?.name
                 )
             }
             else -> {
@@ -365,7 +517,9 @@ class ProximityAutomationController(
                     fromState = if (isStart) ProximityState.OUTSIDE else ProximityState.INSIDE,
                     toState = if (isStart) ProximityState.INSIDE else ProximityState.OUTSIDE,
                     success = false,
-                    message = "Samsung Mode $actionName failed: $errorReason"
+                    message = "Samsung Mode $actionName failed [${rule?.name ?: "Rule"}]: $errorReason",
+                    ruleId = rule?.id,
+                    ruleName = rule?.name
                 )
 
                 // Safe exponential backoff retry (up to 3 retries: 5s, 15s, 30s)
@@ -381,11 +535,13 @@ class ProximityAutomationController(
                         fromState = if (isStart) ProximityState.OUTSIDE else ProximityState.INSIDE,
                         toState = if (isStart) ProximityState.INSIDE else ProximityState.OUTSIDE,
                         success = false,
-                        message = "Scheduling retry #${retryCount + 1} for $actionName in ${backoffSeconds}s..."
+                        message = "Scheduling retry #${retryCount + 1} for $actionName in ${backoffSeconds}s...",
+                        ruleId = rule?.id,
+                        ruleName = rule?.name
                     )
                     delay(backoffSeconds * 1000L)
                     if (_automationState.value.masterEnabled && !_automationState.value.isCurrentlyPaused) {
-                        dispatchModeAction(isStart, uuid, retryCount + 1)
+                        dispatchModeAction(isStart, uuid, retryCount + 1, rule)
                     }
                 }
             }
@@ -397,7 +553,9 @@ class ProximityAutomationController(
         fromState: ProximityState,
         toState: ProximityState,
         success: Boolean,
-        message: String
+        message: String,
+        ruleId: String? = null,
+        ruleName: String? = null
     ) {
         val event = AutomationAuditEvent(
             action = action,
@@ -405,10 +563,13 @@ class ProximityAutomationController(
             toState = toState,
             targetUuid = _automationState.value.targetModeUuid,
             success = success,
-            message = message
+            message = message,
+            ruleId = ruleId,
+            ruleName = ruleName
         )
         coroutineScope.launch {
             _auditEvents.emit(event)
         }
     }
 }
+

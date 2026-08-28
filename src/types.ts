@@ -175,7 +175,29 @@ export interface ProximityEngineSnapshot {
   recentEvents: ProximityTransitionEvent[];
 }
 
-// --- Phase 4: Proximity Automation & Samsung Modes Dispatcher ---
+// --- Phase 4 & 5: Multi-Device & Multi-Mode Proximity Automation Engine ---
+
+export type AutomationEntryAction = 'TURN_ON' | 'TURN_OFF' | 'NONE';
+export type AutomationExitAction = 'TURN_OFF' | 'TURN_ON' | 'RESTORE_PREVIOUS' | 'NONE';
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  deviceKey: string;
+  deviceDisplayName: string;
+  targetModeUuid: string;
+  targetModeName: string;
+  entryAction: AutomationEntryAction;
+  exitAction: AutomationExitAction;
+  priority: number; // 1 = highest priority
+  isEnabled: boolean;
+  timeConstraintEnabled: boolean;
+  timeStart?: string; // "HH:mm" e.g. "22:00"
+  timeEnd?: string;   // "HH:mm" e.g. "07:00"
+  daysOfWeek?: string[]; // ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+  notes?: string;
+  createdAtMillis: number;
+}
 
 export interface RuntimePermissionStatus {
   allGranted: boolean;
@@ -212,6 +234,8 @@ export interface AutomationState {
   totalTransitionsHandled: number;
   successfulInvocations: number;
   failedInvocations: number;
+  activeRuleId?: string | null;
+  rules?: AutomationRule[];
 }
 
 export interface AutomationAuditEvent {
@@ -223,6 +247,8 @@ export interface AutomationAuditEvent {
   targetUuid: string;
   success: boolean;
   message: string;
+  ruleId?: string;
+  ruleName?: string;
 }
 
 

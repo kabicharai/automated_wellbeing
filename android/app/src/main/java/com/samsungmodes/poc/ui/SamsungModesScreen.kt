@@ -145,6 +145,7 @@ fun SamsungModesScreen(
                         val proxSnapshot by viewModel.proximityEngine.snapshot.collectAsState()
                         AutomationTab(
                             automationState = state.automationState,
+                            automationRules = state.automationRules,
                             proximityState = proxSnapshot.state,
                             filteredRssi = proxSnapshot.currentFilteredRssi ?: -70.0,
                             confidencePercent = proxSnapshot.confidencePercent,
@@ -160,6 +161,9 @@ fun SamsungModesScreen(
                             },
                             onToggleMaster = { viewModel.toggleMasterAutomation(it) },
                             onSetModeUuid = { viewModel.setAutomationTargetMode(it) },
+                            onSaveRule = { viewModel.saveAutomationRule(it) },
+                            onDeleteRule = { viewModel.deleteAutomationRule(it) },
+                            onToggleRule = { id, enabled -> viewModel.toggleAutomationRule(id, enabled) },
                             onPause = { viewModel.pauseAutomation(it) },
                             onResume = { viewModel.resumeAutomation() },
                             onEmergencyStop = { viewModel.emergencyStopAutomation() },

@@ -25,16 +25,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.samsungmodes.poc.ble.BlePermissionHelper
 import com.samsungmodes.poc.proximity.automation.ProximityAutomationController
+import com.samsungmodes.poc.proximity.model.AutomationEntryAction
+import com.samsungmodes.poc.proximity.model.AutomationExitAction
+import com.samsungmodes.poc.proximity.model.AutomationRule
 import com.samsungmodes.poc.proximity.model.ProximityProfile
 import com.samsungmodes.poc.proximity.model.ProximityState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AutomationTab(
     automationState: ProximityAutomationController.AutomationState,
+    automationRules: List<AutomationRule>,
     proximityState: ProximityState,
     filteredRssi: Double,
     confidencePercent: Int,
@@ -46,6 +51,9 @@ fun AutomationTab(
     onOpenSettings: () -> Unit,
     onToggleMaster: (Boolean) -> Unit,
     onSetModeUuid: (String) -> Unit,
+    onSaveRule: (AutomationRule) -> Unit,
+    onDeleteRule: (String) -> Unit,
+    onToggleRule: (String, Boolean) -> Unit,
     onPause: (Int) -> Unit,
     onResume: () -> Unit,
     onEmergencyStop: () -> Unit,
@@ -55,8 +63,8 @@ fun AutomationTab(
     modifier: Modifier = Modifier
 ) {
     var showResetDialog by remember { mutableStateOf(false) }
-    var showUuidEditDialog by remember { mutableStateOf(false) }
-    var tempUuid by remember(automationState.targetModeUuid) { mutableStateOf(automationState.targetModeUuid) }
+    var showRuleDialog by remember { mutableStateOf(false) }
+    var editingRule by remember { mutableStateOf<AutomationRule?>(null) }
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
     LazyColumn(
@@ -149,7 +157,7 @@ fun AutomationTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Master Proximity Automation",
                                 fontSize = 16.sp,
@@ -160,7 +168,7 @@ fun AutomationTab(
                                 text = when {
                                     !isEnabled -> "Automation is OFF • No Samsung Modes will be triggered"
                                     isPaused -> "Paused (${automationState.pauseRemainingSeconds}s remaining)"
-                                    else -> "ACTIVE • Dispatching Samsung Mode commands automatically"
+                                    else -> "ACTIVE • Multi-Beacon Engine Evaluating Rules"
                                 },
                                 fontSize = 12.sp,
                                 color = when {
@@ -228,7 +236,156 @@ fun AutomationTab(
             }
         }
 
-        // --- 3. PROXIMITY -> SAMSUNG MODE PIPELINE ---
+        // --- 3. LIVE PROXIMITY TELEMETRY BANNER ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Live Signal & Proximity Zone",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF1E293B)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        when (proximityState) {
+                                            ProximityState.INSIDE -> Color(0xFFDCFCE7)
+                                            ProximityState.OUTSIDE -> Color(0xFFEFF6FF)
+                                            ProximityState.UNKNOWN -> Color(0xFFF1F5F9)
+                                        }
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = proximityState.name,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when (proximityState) {
+                                        ProximityState.INSIDE -> Color(0xFF15803D)
+                                        ProximityState.OUTSIDE -> Color(0xFF1D4ED8)
+                                        ProximityState.UNKNOWN -> Color(0xFF64748B)
+                                    }
+                                )
+                            }
+                            Text("${filteredRssi.toInt()} dBm", fontSize = 12.sp, color = Color(0xFF64748B), fontFamily = FontFamily.Monospace)
+                        }
+                    }
+
+                    if (activeProfile != null) {
+                        Text(
+                            "Tracked Beacon: ${activeProfile.targetDisplayName} (Enter < ${activeProfile.enterThresholdRssi} dBm, Exit < ${activeProfile.exitThresholdRssi} dBm)",
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- 4. MULTI-DEVICE / MULTI-MODE AUTOMATION RULES HEADER ---
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        "Automation Rules",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        "Multi-beacon triggers with custom entry & exit actions",
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        editingRule = null
+                        showRuleDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Add Rule", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // --- 5. AUTOMATION RULES LIST ---
+        if (automationRules.isEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Outlined.Rule, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(36.dp))
+                        Text("No Automation Rules Configured", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFF334155))
+                        Text(
+                            "Create rules to turn modes ON or OFF automatically when walking near or leaving your BLE tags.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = {
+                                editingRule = null
+                                showRuleDialog = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Create First Rule")
+                        }
+                    }
+                }
+            }
+        } else {
+            items(automationRules, key = { it.id }) { rule ->
+                RuleCard(
+                    rule = rule,
+                    onToggle = { enabled -> onToggleRule(rule.id, enabled) },
+                    onEdit = {
+                        editingRule = rule
+                        showRuleDialog = true
+                    },
+                    onDelete = { onDeleteRule(rule.id) }
+                )
+            }
+        }
+
+        // --- 6. MANUAL CONTROLS & OVERRIDES ---
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -239,193 +396,7 @@ fun AutomationTab(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "Proximity → Samsung Mode Pipeline",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = Color(0xFF1E293B)
-                    )
-
-                    // Pipeline Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Node 1: Beacon
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFEFF6FF)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Bluetooth, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(activeProfile?.targetDisplayName ?: "SmartTag", fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            Text("${filteredRssi.toInt()} dBm", fontSize = 10.sp, color = Color(0xFF64748B))
-                        }
-
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
-
-                        // Node 2: State Engine
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        when (proximityState) {
-                                            ProximityState.INSIDE -> Color(0xFFDCFCE7)
-                                            ProximityState.OUTSIDE -> Color(0xFFEFF6FF)
-                                            ProximityState.UNKNOWN -> Color(0xFFF1F5F9)
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    when (proximityState) {
-                                        ProximityState.INSIDE -> "IN"
-                                        ProximityState.OUTSIDE -> "OUT"
-                                        ProximityState.UNKNOWN -> "?"
-                                    },
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = when (proximityState) {
-                                        ProximityState.INSIDE -> Color(0xFF15803D)
-                                        ProximityState.OUTSIDE -> Color(0xFF1D4ED8)
-                                        ProximityState.UNKNOWN -> Color(0xFF64748B)
-                                    }
-                                )
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(proximityState.name, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            Text("$confidencePercent% conf", fontSize = 10.sp, color = Color(0xFF64748B))
-                        }
-
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
-
-                        // Node 3: Samsung Mode
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (proximityState == ProximityState.INSIDE && automationState.masterEnabled) Color(0xFFEDE9FE) else Color(0xFFF1F5F9)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.PhoneAndroid,
-                                    contentDescription = null,
-                                    tint = if (proximityState == ProximityState.INSIDE && automationState.masterEnabled) Color(0xFF7C3AED) else Color(0xFF64748B),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(automationState.targetModeName.ifBlank { "Mode" }, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                            Text(
-                                if (proximityState == ProximityState.INSIDE && automationState.masterEnabled) "START (ON)" else "STOP (OFF)",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (proximityState == ProximityState.INSIDE && automationState.masterEnabled) Color(0xFF7C3AED) else Color(0xFF64748B)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- 4. TARGET SAMSUNG MODE BINDING ---
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Target Samsung Mode",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = Color(0xFF1E293B)
-                        )
-                        IconButton(onClick = { showUuidEditDialog = true }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit UUID", modifier = Modifier.size(16.dp), tint = Color(0xFF2563EB))
-                        }
-                    }
-
-                    if (automationState.targetModeUuid.isNotBlank()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFF8FAFC), RoundedCornerShape(8.dp))
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    automationState.targetModeName,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF0F172A)
-                                )
-                                Text(
-                                    automationState.targetModeUuid,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(18.dp))
-                        }
-                    } else {
-                        Text(
-                            "No Samsung Mode UUID configured. Tap edit or select a mode to bind.",
-                            fontSize = 12.sp,
-                            color = Color(0xFFDC2626)
-                        )
-                    }
-
-                    // Quick Mode Presets
-                    Text("Quick Presets / Known Samsung Routines:", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(
-                            "Bedroom Focus" to "routine-bedroom-focus-01",
-                            "Work / Study" to "routine-work-mode-02",
-                            "Sleep / Relax" to "routine-sleep-relax-03"
-                        ).forEach { (name, uuid) ->
-                            SuggestionChip(
-                                onClick = { onSetModeUuid(uuid) },
-                                label = { Text(name, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- 5. SAFETY & OVERRIDE CONTROLS ---
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Automation Overrides & Safety",
+                        "Automation Controls & Overrides",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = Color(0xFF1E293B)
@@ -440,22 +411,16 @@ fun AutomationTab(
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Resume", fontSize = 12.sp)
+                                Text("Resume Automation", fontSize = 12.sp)
                             }
                         } else {
                             OutlinedButton(
-                                onClick = { onPause(15) },
+                                onClick = { onPause(30) },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Default.Pause, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Pause 15m", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { onPause(60) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Pause 1h", fontSize = 11.sp)
+                                Text("Pause 30m", fontSize = 12.sp)
                             }
                         }
 
@@ -463,9 +428,9 @@ fun AutomationTab(
                             onClick = onReconcile,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Reconcile", fontSize = 11.sp)
+                            Text("Reconcile Now", fontSize = 12.sp)
                         }
                     }
 
@@ -477,92 +442,18 @@ fun AutomationTab(
                     ) {
                         Icon(Icons.Default.StopCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("EMERGENCY STOP (Stop Mode & Disable)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // --- 6. PER-DEVICE SAVED PROFILES & PERSISTENCE ---
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Per-Device Calibration Profiles (${savedProfiles.size})",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = Color(0xFF1E293B)
-                        )
-                        Text(
-                            "Persisted in Storage",
-                            fontSize = 11.sp,
-                            color = Color(0xFF15803D),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    if (savedProfiles.isEmpty()) {
-                        Text(
-                            "No calibrated profiles saved yet. Calibrate a beacon in the Calibration tab to save its profile.",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    } else {
-                        savedProfiles.values.forEach { profile ->
-                            val isSelected = activeProfile?.targetDeviceId?.primaryKey == profile.targetDeviceId.primaryKey
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC))
-                                    .border(1.dp, if (isSelected) Color(0xFF93C5FD) else Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
-                                    .clickable { onSelectDeviceProfile(profile.targetDeviceId.primaryKey) }
-                                    .padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        profile.profileName,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp,
-                                        color = Color(0xFF0F172A)
-                                    )
-                                    Text(
-                                        "Device: ${profile.targetDisplayName} • ENTER: ${profile.enterThresholdRssi} dBm, EXIT: ${profile.exitThresholdRssi} dBm",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF64748B)
-                                    )
-                                }
-                                if (isSelected) {
-                                    Badge(containerColor = Color(0xFF2563EB)) {
-                                        Text("ACTIVE", color = Color.White, fontSize = 10.sp)
-                                    }
-                                }
-                            }
-                        }
+                        Text("EMERGENCY STOP (Disable & Turn Off)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
 
                     HorizontalDivider(color = Color(0xFFF1F5F9))
 
-                    // Reset All Data Option
+                    // Reset Data Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Need to start fresh?", fontSize = 12.sp, color = Color(0xFF64748B))
+                        Text("Need to reset all configs?", fontSize = 12.sp, color = Color(0xFF64748B))
                         TextButton(
                             onClick = { showResetDialog = true },
                             colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFDC2626))
@@ -576,7 +467,7 @@ fun AutomationTab(
             }
         }
 
-        // --- 7. AUTOMATION TELEMETRY STATS ---
+        // --- 7. TELEMETRY STATS ---
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
@@ -612,13 +503,26 @@ fun AutomationTab(
         }
     }
 
+    // --- RULE BUILDER / EDIT DIALOG ---
+    if (showRuleDialog) {
+        RuleEditDialog(
+            initialRule = editingRule,
+            savedDevices = savedDevices,
+            onDismiss = { showRuleDialog = false },
+            onSave = { rule ->
+                onSaveRule(rule)
+                showRuleDialog = false
+            }
+        )
+    }
+
     // --- RESET CONFIRMATION DIALOG ---
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text("Reset All Application Data?") },
             text = {
-                Text("This will delete all saved BLE beacons, per-device calibration profiles, thresholds, and automation settings. The app will return to initial default state.")
+                Text("This will delete all saved BLE beacons, calibration profiles, automation rules, and return the app to initial state.")
             },
             confirmButton = {
                 Button(
@@ -638,37 +542,306 @@ fun AutomationTab(
             }
         )
     }
+}
 
-    // --- UUID EDIT DIALOG ---
-    if (showUuidEditDialog) {
-        AlertDialog(
-            onDismissRequest = { showUuidEditDialog = false },
-            title = { Text("Configure Target Samsung Mode UUID") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter the UUID of the Samsung Mode / Routine to control:", fontSize = 13.sp)
-                    OutlinedTextField(
-                        value = tempUuid,
-                        onValueChange = { tempUuid = it },
-                        label = { Text("Mode UUID") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+@Composable
+fun RuleCard(
+    rule: AutomationRule,
+    onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = if (rule.isEnabled) Color.White else Color(0xFFF8FAFC)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, if (rule.isEnabled) Color(0xFFCBD5E1) else Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Header Row: Name & Enabled Switch
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        rule.name,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = if (rule.isEnabled) Color(0xFF0F172A) else Color(0xFF94A3B8)
+                    )
+                    Text(
+                        "Beacon: ${rule.deviceDisplayName.ifBlank { "Any BLE Beacon" }}",
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B)
                     )
                 }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    onSetModeUuid(tempUuid)
-                    showUuidEditDialog = false
-                }) {
-                    Text("Save UUID")
+
+                Switch(
+                    checked = rule.isEnabled,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF2563EB)
+                    )
+                )
+            }
+
+            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+            // Action Pills Row: Inside -> Action, Outside -> Action
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Entry Action Pill
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            when (rule.entryAction) {
+                                AutomationEntryAction.TURN_ON -> Color(0xFFDCFCE7)
+                                AutomationEntryAction.TURN_OFF -> Color(0xFFFEE2E2)
+                                AutomationEntryAction.NONE -> Color(0xFFF1F5F9)
+                            }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Column {
+                        Text("ENTER (INSIDE)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
+                        Text(
+                            rule.entryAction.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = when (rule.entryAction) {
+                                AutomationEntryAction.TURN_ON -> Color(0xFF15803D)
+                                AutomationEntryAction.TURN_OFF -> Color(0xFFB91C1C)
+                                AutomationEntryAction.NONE -> Color(0xFF64748B)
+                            }
+                        )
+                    }
                 }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showUuidEditDialog = false }) {
-                    Text("Cancel")
+
+                // Exit Action Pill
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            when (rule.exitAction) {
+                                AutomationExitAction.TURN_OFF -> Color(0xFFFEE2E2)
+                                AutomationExitAction.TURN_ON -> Color(0xFFDCFCE7)
+                                AutomationExitAction.RESTORE_PREVIOUS -> Color(0xFFEFF6FF)
+                                AutomationExitAction.NONE -> Color(0xFFF1F5F9)
+                            }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Column {
+                        Text("EXIT (OUTSIDE)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
+                        Text(
+                            rule.exitAction.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = when (rule.exitAction) {
+                                AutomationExitAction.TURN_OFF -> Color(0xFFB91C1C)
+                                AutomationExitAction.TURN_ON -> Color(0xFF15803D)
+                                AutomationExitAction.RESTORE_PREVIOUS -> Color(0xFF1D4ED8)
+                                AutomationExitAction.NONE -> Color(0xFF64748B)
+                            }
+                        )
+                    }
                 }
             }
+
+            // Mode Name & UUID Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        "Mode: ${rule.targetModeName}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF334155)
+                    )
+                    Text(
+                        "UUID: ${rule.targetModeUuid.take(18)}...",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Rule", tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Rule", tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RuleEditDialog(
+    initialRule: AutomationRule?,
+    savedDevices: Map<String, com.samsungmodes.poc.ble.model.BleDeviceProfile>,
+    onDismiss: () -> Unit,
+    onSave: (AutomationRule) -> Unit
+) {
+    var name by remember { mutableStateOf(initialRule?.name ?: "Focus Zone Rule") }
+    var selectedDeviceKey by remember { mutableStateOf(initialRule?.deviceKey ?: savedDevices.keys.firstOrNull() ?: "") }
+    var selectedDeviceName by remember {
+        mutableStateOf(
+            initialRule?.deviceDisplayName
+                ?: savedDevices[selectedDeviceKey]?.displayName
+                ?: "BLE Beacon"
         )
     }
+    var targetModeName by remember { mutableStateOf(initialRule?.targetModeName ?: "Focus Mode") }
+    var targetModeUuid by remember { mutableStateOf(initialRule?.targetModeUuid ?: "uuid-focus-mode") }
+    var entryAction by remember { mutableStateOf(initialRule?.entryAction ?: AutomationEntryAction.TURN_ON) }
+    var exitAction by remember { mutableStateOf(initialRule?.exitAction ?: AutomationExitAction.TURN_OFF) }
+    var priority by remember { mutableStateOf(initialRule?.priority ?: 1) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (initialRule == null) "Create Automation Rule" else "Edit Automation Rule",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Rule Name Field
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Rule Name") },
+                    placeholder = { Text("e.g. Work Desk Focus") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // BLE Device Selection
+                if (savedDevices.isNotEmpty()) {
+                    Text("Trigger Beacon:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF334155))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        savedDevices.values.forEach { dev ->
+                            val isSelected = dev.deviceId.primaryKey == selectedDeviceKey
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedDeviceKey = dev.deviceId.primaryKey
+                                    selectedDeviceName = dev.displayName
+                                },
+                                label = { Text(dev.displayName, fontSize = 11.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Samsung Mode Name & UUID
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = targetModeName,
+                        onValueChange = { targetModeName = it },
+                        label = { Text("Mode Name") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = targetModeUuid,
+                    onValueChange = { targetModeUuid = it },
+                    label = { Text("Samsung Mode UUID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                // Entry Action (INSIDE trigger)
+                Text("When entering proximity (INSIDE):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AutomationEntryAction.values().forEach { action ->
+                        val isSelected = entryAction == action
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { entryAction = action },
+                            label = { Text(action.displayName, fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                // Exit Action (OUTSIDE trigger)
+                Text("When leaving proximity (OUTSIDE):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AutomationExitAction.values().forEach { action ->
+                        val isSelected = exitAction == action
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { exitAction = action },
+                            label = { Text(action.displayName, fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val rule = (initialRule ?: AutomationRule(
+                        id = UUID.randomUUID().toString(),
+                        deviceKey = selectedDeviceKey,
+                        targetModeUuid = targetModeUuid
+                    )).copy(
+                        name = name,
+                        deviceKey = selectedDeviceKey,
+                        deviceDisplayName = selectedDeviceName,
+                        targetModeName = targetModeName,
+                        targetModeUuid = targetModeUuid,
+                        entryAction = entryAction,
+                        exitAction = exitAction,
+                        priority = priority
+                    )
+                    onSave(rule)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+            ) {
+                Text("Save Rule")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.samsungmodes.poc.ble.model.BleDeviceId
 import com.samsungmodes.poc.ble.model.BleDeviceProfile
 import com.samsungmodes.poc.ble.model.BleProximityDevice
+import com.samsungmodes.poc.proximity.model.AutomationRule
 import com.samsungmodes.poc.proximity.model.ProximityProfile
 import com.samsungmodes.poc.proximity.model.RssiDistributionMetrics
 import com.samsungmodes.poc.proximity.model.RssiFilterType
@@ -22,7 +23,7 @@ class ProximityStorageRepository(private val context: Context) {
 
     init {
         // Auto-restore backup from external documents storage if this is a fresh install or empty prefs
-        if (getAllSavedDevices().isEmpty()) {
+        if (getAllSavedDevices().isEmpty() && getAllAutomationRules().isEmpty()) {
             restoreFromExternalStorage()
         }
     }
@@ -35,6 +36,7 @@ class ProximityStorageRepository(private val context: Context) {
         private const val KEY_MASTER_AUTOMATION = "master_automation_enabled"
         private const val KEY_TARGET_MODE_UUID = "target_samsung_mode_uuid"
         private const val KEY_PAUSE_UNTIL_MILLIS = "automation_pause_until_millis"
+        private const val KEY_AUTOMATION_RULES = "automation_rules_list"
     }
 
     // --- Saved BLE Devices Persistence ---
@@ -169,17 +171,61 @@ class ProximityStorageRepository(private val context: Context) {
         prefs.edit().putLong(KEY_PAUSE_UNTIL_MILLIS, millis).apply()
     }
 
+    // --- Automation Rules Persistence (Multi-Device / Multi-Mode) ---
+
+    fun getAllAutomationRules(): List<AutomationRule> {
+        val rawJson = prefs.getString(KEY_AUTOMATION_RULES, null) ?: return emptyList()
+        val result = mutableListOf<AutomationRule>()
+        try {
+            val jsonArray = JSONArray(rawJson)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                result.add(AutomationRule.fromJson(obj))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return result.sortedBy { it.priority }
+    }
+
+    fun saveAutomationRule(rule: AutomationRule) {
+        val rules = getAllAutomationRules().toMutableList()
+        val index = rules.indexOfFirst { it.id == rule.id }
+        if (index >= 0) {
+            rules[index] = rule
+        } else {
+            rules.add(rule)
+        }
+        persistAutomationRules(rules)
+    }
+
+    fun deleteAutomationRule(ruleId: String) {
+        val rules = getAllAutomationRules().filter { it.id != ruleId }
+        persistAutomationRules(rules)
+    }
+
+    fun persistAutomationRules(rules: List<AutomationRule>) {
+        val jsonArray = JSONArray()
+        rules.forEach { rule ->
+            jsonArray.put(rule.toJson())
+        }
+        prefs.edit().putString(KEY_AUTOMATION_RULES, jsonArray.toString()).apply()
+        syncBackupToExternalStorage()
+    }
+
     // --- Local Backup & Restore (Survives Uninstalls) ---
 
     fun exportFullBackupJson(): String {
         val root = JSONObject()
         val devicesJson = prefs.getString(KEY_SAVED_DEVICES, "[]") ?: "[]"
         val profilesJson = prefs.getString(KEY_DEVICE_PROFILES, "[]") ?: "[]"
+        val rulesJson = prefs.getString(KEY_AUTOMATION_RULES, "[]") ?: "[]"
         
-        root.put("version", 1)
+        root.put("version", 2)
         root.put("timestamp", System.currentTimeMillis())
         root.put("saved_devices", JSONArray(devicesJson))
         root.put("device_profiles", JSONArray(profilesJson))
+        root.put("automation_rules", JSONArray(rulesJson))
         root.put("active_device_key", getActiveDeviceKey() ?: "")
         root.put("master_automation", isMasterAutomationEnabled())
         root.put("target_mode_uuid", getTargetModeUuid())
@@ -215,6 +261,9 @@ class ProximityStorageRepository(private val context: Context) {
             }
             if (root.has("device_profiles")) {
                 editor.putString(KEY_DEVICE_PROFILES, root.getJSONArray("device_profiles").toString())
+            }
+            if (root.has("automation_rules")) {
+                editor.putString(KEY_AUTOMATION_RULES, root.getJSONArray("automation_rules").toString())
             }
             if (root.has("active_device_key")) {
                 val key = root.getString("active_device_key")

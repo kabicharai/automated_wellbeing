@@ -700,16 +700,15 @@ fun RuleEditDialog(
     onSave: (AutomationRule) -> Unit
 ) {
     var name by remember { mutableStateOf(initialRule?.name ?: "Focus Zone Rule") }
-    var selectedDeviceKey by remember { mutableStateOf(initialRule?.deviceKey ?: savedDevices.keys.firstOrNull() ?: "") }
+    var selectedDeviceKey by remember { mutableStateOf(initialRule?.deviceKey ?: "") }
     var selectedDeviceName by remember {
         mutableStateOf(
             initialRule?.deviceDisplayName
-                ?: savedDevices[selectedDeviceKey]?.displayName
-                ?: "BLE Beacon"
+                ?: if (selectedDeviceKey.isNotBlank()) savedDevices[selectedDeviceKey]?.displayName ?: "BLE Beacon" else "Any Beacon"
         )
     }
     var targetModeName by remember { mutableStateOf(initialRule?.targetModeName ?: "Focus Mode") }
-    var targetModeUuid by remember { mutableStateOf(initialRule?.targetModeUuid ?: "uuid-focus-mode") }
+    var targetModeUuid by remember { mutableStateOf(initialRule?.targetModeUuid ?: "") }
     var entryAction by remember { mutableStateOf(initialRule?.entryAction ?: AutomationEntryAction.TURN_ON) }
     var exitAction by remember { mutableStateOf(initialRule?.exitAction ?: AutomationExitAction.TURN_OFF) }
     var priority by remember { mutableStateOf(initialRule?.priority ?: 1) }
@@ -741,26 +740,37 @@ fun RuleEditDialog(
                 )
 
                 // BLE Device Selection
-                if (savedDevices.isNotEmpty()) {
-                    Text("Trigger Beacon:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF334155))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        savedDevices.values.forEach { dev ->
-                            val isSelected = dev.deviceId.primaryKey == selectedDeviceKey
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    selectedDeviceKey = dev.deviceId.primaryKey
-                                    selectedDeviceName = dev.displayName
-                                },
-                                label = { Text(dev.displayName, fontSize = 11.sp) },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
-                                }
-                            )
+                Text("Trigger Beacon:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF334155))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val isAnySelected = selectedDeviceKey.isBlank() || selectedDeviceKey.equals("ANY", ignoreCase = true)
+                    FilterChip(
+                        selected = isAnySelected,
+                        onClick = {
+                            selectedDeviceKey = ""
+                            selectedDeviceName = "Any Beacon"
+                        },
+                        label = { Text("Any Beacon", fontSize = 11.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.AllInclusive, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
+                    )
+
+                    savedDevices.values.take(2).forEach { dev ->
+                        val isSelected = dev.deviceId.primaryKey == selectedDeviceKey
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                selectedDeviceKey = dev.deviceId.primaryKey
+                                selectedDeviceName = dev.displayName
+                            },
+                            label = { Text(dev.displayName, fontSize = 11.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
+                            }
+                        )
                     }
                 }
 
@@ -770,6 +780,7 @@ fun RuleEditDialog(
                         value = targetModeName,
                         onValueChange = { targetModeName = it },
                         label = { Text("Mode Name") },
+                        placeholder = { Text("e.g. Focus / Work") },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -777,8 +788,9 @@ fun RuleEditDialog(
 
                 OutlinedTextField(
                     value = targetModeUuid,
-                    onValueChange = { targetModeUuid = it },
+                    onValueChange = { targetModeUuid = it.trim() },
                     label = { Text("Samsung Mode UUID") },
+                    placeholder = { Text("Enter Mode UUID from POC / Modes app") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

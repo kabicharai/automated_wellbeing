@@ -243,8 +243,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         automationController.setRules(rules)
 
-        if (targetModeUuid.isNotBlank()) {
-            automationController.setTargetModeUuid(targetModeUuid, activeProfile?.profileName ?: "Target Mode")
+        val resolvedUuid = targetModeUuid.ifBlank {
+            rules.firstOrNull { it.targetModeUuid.isNotBlank() }?.targetModeUuid ?: ""
+        }
+        if (resolvedUuid.isNotBlank()) {
+            val modeName = rules.firstOrNull { it.targetModeUuid == resolvedUuid }?.targetModeName ?: activeProfile?.profileName ?: "Target Mode"
+            automationController.setTargetModeUuid(resolvedUuid, modeName)
+            _uiState.value = _uiState.value.copy(modeUuid = resolvedUuid)
         }
         automationController.setMasterEnabled(masterEnabled)
         if (pauseUntil > System.currentTimeMillis()) {
@@ -262,7 +267,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updatedRules = storageRepository.getAllAutomationRules()
         _uiState.value = _uiState.value.copy(automationRules = updatedRules)
         automationController.setRules(updatedRules)
-        log("AUTO", "Saved Automation Rule '${rule.name}' [${rule.entryAction} / ${rule.exitAction}]")
+        if (rule.targetModeUuid.isNotBlank()) {
+            if (_uiState.value.modeUuid.isBlank() || storageRepository.getTargetModeUuid().isBlank()) {
+                setAutomationTargetMode(rule.targetModeUuid, rule.targetModeName)
+            }
+        }
+        log("AUTO", "Saved Automation Rule '${rule.name}' [${rule.entryAction} / ${rule.exitAction}] (Mode UUID: ${rule.targetModeUuid})")
     }
 
     fun deleteAutomationRule(ruleId: String) {

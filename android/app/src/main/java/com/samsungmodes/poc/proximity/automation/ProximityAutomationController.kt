@@ -229,7 +229,10 @@ class ProximityAutomationController(
         }
 
         val rule = findActiveRuleForCurrentState()
-        val uuid = rule?.targetModeUuid ?: _automationState.value.targetModeUuid
+        val uuid = rule?.targetModeUuid?.ifBlank { null }
+            ?: _automationState.value.targetModeUuid.ifBlank { null }
+            ?: _automationState.value.activeRules.firstOrNull { it.isEnabled && it.targetModeUuid.isNotBlank() }?.targetModeUuid
+            ?: ""
         if (uuid.isBlank()) return
 
         coroutineScope.launch {
@@ -271,10 +274,27 @@ class ProximityAutomationController(
         val rules = _automationState.value.activeRules.filter { it.isEnabled }
         if (rules.isEmpty()) return null
 
-        val currentDeviceKey = proximityEngine.activeProfile?.targetDeviceId?.primaryKey
-        // Find rule matching active device
-        val matchingRule = rules.firstOrNull { rule ->
-            currentDeviceKey == null || rule.deviceKey.isBlank() || rule.deviceKey == currentDeviceKey
+        val activeProfile = proximityEngine.activeProfile
+        val currentDeviceKey = activeProfile?.targetDeviceId?.primaryKey?.trim()
+        val currentMac = activeProfile?.targetDeviceId?.macAddress?.trim()
+        val currentName = activeProfile?.targetDisplayName?.trim()
+
+        // 1. First priority: Look for a rule matching the active BLE device
+        var matchingRule = rules.firstOrNull { rule ->
+            val ruleKey = rule.deviceKey.trim()
+            when {
+                ruleKey.isBlank() || ruleKey.equals("ANY", ignoreCase = true) || ruleKey.equals("ALL", ignoreCase = true) -> true
+                currentDeviceKey != null && ruleKey.equals(currentDeviceKey, ignoreCase = true) -> true
+                currentDeviceKey != null && ruleKey.removePrefix("addr:").equals(currentDeviceKey.removePrefix("addr:"), ignoreCase = true) -> true
+                !currentMac.isNullOrBlank() && ruleKey.contains(currentMac, ignoreCase = true) -> true
+                !currentName.isNullOrBlank() && rule.deviceDisplayName.equals(currentName, ignoreCase = true) -> true
+                else -> false
+            }
+        }
+
+        // 2. Fallback: If no device-specific rule matched, take the highest priority enabled rule with a valid UUID
+        if (matchingRule == null) {
+            matchingRule = rules.firstOrNull { it.targetModeUuid.isNotBlank() } ?: rules.firstOrNull()
         }
 
         if (matchingRule != null && matchingRule.timeConstraintEnabled) {
@@ -337,7 +357,10 @@ class ProximityAutomationController(
 
         // Find active rule or fallback to global targetModeUuid
         val rule = findActiveRuleForCurrentState()
-        val uuid = rule?.targetModeUuid ?: state.targetModeUuid
+        val uuid = rule?.targetModeUuid?.ifBlank { null }
+            ?: state.targetModeUuid.ifBlank { null }
+            ?: state.activeRules.firstOrNull { it.isEnabled && it.targetModeUuid.isNotBlank() }?.targetModeUuid
+            ?: ""
 
         // Rule 3: Target Mode UUID must be configured
         if (uuid.isBlank()) {

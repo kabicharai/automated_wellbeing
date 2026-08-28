@@ -146,7 +146,7 @@ fun SamsungModesScreen(
                         AutomationTab(
                             automationState = state.automationState,
                             proximityState = proxSnapshot.state,
-                            filteredRssi = proxSnapshot.filteredRssi,
+                            filteredRssi = proxSnapshot.currentFilteredRssi ?: -70.0,
                             confidencePercent = proxSnapshot.confidencePercent,
                             activeProfile = state.activeProximityProfile,
                             savedProfiles = state.savedProfiles,

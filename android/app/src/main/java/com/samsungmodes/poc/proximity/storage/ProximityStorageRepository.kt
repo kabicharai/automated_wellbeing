@@ -174,12 +174,11 @@ class ProximityStorageRepository(context: Context) {
         obj.put("displayName", device.displayName)
         obj.put("deviceType", device.deviceType.name)
         obj.put("primaryKey", device.deviceId.primaryKey)
-        obj.put("address", device.deviceId.address ?: "")
-        obj.put("advertisedName", device.deviceId.advertisedName ?: "")
+        obj.put("address", device.deviceId.macAddress ?: "")
+        obj.put("advertisedName", device.deviceId.deviceName ?: "")
         obj.put("manufacturerId", device.deviceId.manufacturerId ?: -1)
         obj.put("targetMacAddress", device.targetMacAddress ?: "")
         obj.put("targetManufacturerId", device.targetManufacturerId ?: -1)
-        obj.put("isSavedProximityTarget", device.isSavedProximityTarget)
         obj.put("notes", device.notes)
         return obj
     }
@@ -188,8 +187,8 @@ class ProximityStorageRepository(context: Context) {
         return try {
             val deviceId = BleDeviceId(
                 primaryKey = obj.getString("primaryKey"),
-                address = obj.optString("address").ifBlank { null },
-                advertisedName = obj.optString("advertisedName").ifBlank { null },
+                macAddress = obj.optString("address").ifBlank { null },
+                deviceName = obj.optString("advertisedName").ifBlank { null },
                 manufacturerId = if (obj.has("manufacturerId") && obj.getInt("manufacturerId") != -1) obj.getInt("manufacturerId") else null
             )
             val deviceType = try {
@@ -205,7 +204,6 @@ class ProximityStorageRepository(context: Context) {
                 deviceId = deviceId,
                 targetMacAddress = obj.optString("targetMacAddress").ifBlank { null },
                 targetManufacturerId = if (obj.has("targetManufacturerId") && obj.getInt("targetManufacturerId") != -1) obj.getInt("targetManufacturerId") else null,
-                isSavedProximityTarget = obj.optBoolean("isSavedProximityTarget", true),
                 notes = obj.optString("notes", "")
             )
         } catch (e: Exception) {
@@ -238,7 +236,7 @@ class ProximityStorageRepository(context: Context) {
         return try {
             val deviceId = BleDeviceId(
                 primaryKey = obj.getString("targetPrimaryKey"),
-                advertisedName = obj.optString("targetDisplayName").ifBlank { null }
+                deviceName = obj.optString("targetDisplayName").ifBlank { null }
             )
             val filterType = try {
                 RssiFilterType.valueOf(obj.optString("filterType", "EMA"))

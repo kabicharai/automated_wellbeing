@@ -131,4 +131,26 @@ data class ProximityProfile(
     val boundSamsungModeUuid: String = "",
     val isEnabled: Boolean = false,
     val createdAtMillis: Long = System.currentTimeMillis()
-)
+) {
+    companion object {
+        fun createDefault(
+            targetDeviceId: BleDeviceId,
+            targetDisplayName: String = "Smart Tag",
+            profileName: String = "$targetDisplayName Profile"
+        ): ProximityProfile {
+            return ProximityProfile(
+                profileName = profileName,
+                targetDeviceId = targetDeviceId,
+                targetDisplayName = targetDisplayName,
+                enterThresholdRssi = -64,
+                exitThresholdRssi = -69,
+                enterDurationSeconds = 5,
+                exitDurationSeconds = 10,
+                filterType = RssiFilterType.EMA,
+                filterSmoothingParam = 0.25,
+                windowSampleSize = 15,
+                lostDeviceTimeoutSeconds = 8
+            )
+        }
+    }
+}

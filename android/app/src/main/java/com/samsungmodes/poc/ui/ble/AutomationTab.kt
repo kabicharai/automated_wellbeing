@@ -830,20 +830,60 @@ fun RuleEditDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    AutomationEntryAction.values().forEach { action ->
-                        val isSelected = entryAction == action
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         FilterChip(
-                            selected = isSelected,
-                            onClick = { entryAction = action },
-                            label = { Text(action.displayName, fontSize = 10.sp, maxLines = 1, softWrap = false) },
+                            selected = entryAction == AutomationEntryAction.TURN_ON,
+                            onClick = { entryAction = AutomationEntryAction.TURN_ON },
+                            label = {
+                                Text(
+                                    "Turn Mode ON",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (entryAction == AutomationEntryAction.TURN_ON) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = entryAction == AutomationEntryAction.TURN_OFF,
+                            onClick = { entryAction = AutomationEntryAction.TURN_OFF },
+                            label = {
+                                Text(
+                                    "Turn Mode OFF",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (entryAction == AutomationEntryAction.TURN_OFF) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    FilterChip(
+                        selected = entryAction == AutomationEntryAction.NONE,
+                        onClick = { entryAction = AutomationEntryAction.NONE },
+                        label = {
+                            Text(
+                                "Do Nothing (Ignore Entry)",
+                                fontSize = 11.sp,
+                                fontWeight = if (entryAction == AutomationEntryAction.NONE) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 // Exit Action (OUTSIDE trigger)
@@ -853,17 +893,77 @@ fun RuleEditDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    AutomationExitAction.values().forEach { action ->
-                        val isSelected = exitAction == action
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         FilterChip(
-                            selected = isSelected,
-                            onClick = { exitAction = action },
-                            label = { Text(action.displayName, fontSize = 10.sp, maxLines = 1, softWrap = false) },
+                            selected = exitAction == AutomationExitAction.TURN_OFF,
+                            onClick = { exitAction = AutomationExitAction.TURN_OFF },
+                            label = {
+                                Text(
+                                    "Turn Mode OFF",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (exitAction == AutomationExitAction.TURN_OFF) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = exitAction == AutomationExitAction.TURN_ON,
+                            onClick = { exitAction = AutomationExitAction.TURN_ON },
+                            label = {
+                                Text(
+                                    "Turn Mode ON",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (exitAction == AutomationExitAction.TURN_ON) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = exitAction == AutomationExitAction.RESTORE_PREVIOUS,
+                            onClick = { exitAction = AutomationExitAction.RESTORE_PREVIOUS },
+                            label = {
+                                Text(
+                                    "Restore Previous",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (exitAction == AutomationExitAction.RESTORE_PREVIOUS) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = exitAction == AutomationExitAction.NONE,
+                            onClick = { exitAction = AutomationExitAction.NONE },
+                            label = {
+                                Text(
+                                    "Do Nothing",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (exitAction == AutomationExitAction.NONE) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }

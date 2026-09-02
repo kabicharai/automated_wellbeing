@@ -27,32 +27,59 @@ object LocalExternalConfigStorage {
      * Saves the backup JSON to standard external public Documents storage.
      */
     fun saveBackup(context: Context, jsonContent: String): Boolean {
-        return try {
+        var success = false
+        try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                saveViaMediaStore(context, jsonContent)
+                success = saveViaMediaStore(context, jsonContent)
             } else {
-                saveViaLegacyFileSystem(jsonContent)
+                success = saveViaLegacyFileSystem(jsonContent)
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            false
         }
+
+        // Always also save an internal/app-specific fallback copy
+        try {
+            val fallbackFile = File(context.filesDir, FILE_NAME)
+            FileOutputStream(fallbackFile).use { out ->
+                out.write(jsonContent.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return success
     }
 
     /**
      * Reads the backup JSON if present on the device.
      */
     fun readBackup(context: Context): String? {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        try {
+            val content = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 readViaMediaStore(context) ?: readViaLegacyFileSystem()
             } else {
                 readViaLegacyFileSystem()
             }
+            if (!content.isNullOrBlank()) {
+                return content
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            null
         }
+
+        // Check fallback in app files dir
+        try {
+            val fallbackFile = File(context.filesDir, FILE_NAME)
+            if (fallbackFile.exists() && fallbackFile.isFile) {
+                return fallbackFile.readText(Charsets.UTF_8)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return null
     }
 
     private fun saveViaMediaStore(context: Context, jsonContent: String): Boolean {
@@ -66,21 +93,40 @@ object LocalExternalConfigStorage {
         val queryUri = MediaStore.Files.getContentUri("external")
         var existingUri: Uri? = null
 
-        resolver.query(queryUri, projection, selection, selectionArgs, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-                existingUri = Uri.withAppendedPath(queryUri, id.toString())
+        try {
+            resolver.query(queryUri, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                    existingUri = Uri.withAppendedPath(queryUri, id.toString())
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        if (existingUri != null) {
+            try {
+                resolver.openOutputStream(existingUri!!, "wt")?.use { outputStream ->
+                    outputStream.write(jsonContent.toByteArray(Charsets.UTF_8))
+                    outputStream.flush()
+                }
+                return true
+            } catch (e: Exception) {
+                // If opening existingUri fails due to permission mismatch across reinstalls, try deleting and recreating
+                try {
+                    resolver.delete(existingUri!!, null, null)
+                } catch (delEx: Exception) {
+                    delEx.printStackTrace()
+                }
             }
         }
 
-        val targetUri = existingUri ?: run {
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, FILE_NAME)
-                put(MediaStore.MediaColumns.MIME_TYPE, MIME_TYPE)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOCUMENTS}/$FOLDER_NAME")
-            }
-            resolver.insert(queryUri, values)
-        } ?: return false
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, FILE_NAME)
+            put(MediaStore.MediaColumns.MIME_TYPE, MIME_TYPE)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOCUMENTS}/$FOLDER_NAME")
+        }
+        val targetUri = resolver.insert(queryUri, values) ?: return false
 
         resolver.openOutputStream(targetUri, "wt")?.use { outputStream ->
             outputStream.write(jsonContent.toByteArray(Charsets.UTF_8))

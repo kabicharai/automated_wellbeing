@@ -35,6 +35,7 @@ class CalibrationEngine(
         val step: Step = Step.IDLE,
         val targetDeviceKey: String? = null,
         val targetDeviceName: String = "Smart Tag",
+        val targetDeviceId: BleDeviceId? = null,
         val countdownSecondsRemaining: Int = 0,
         val totalDurationSeconds: Int = 30,
         val outsideSamples: List<Int> = emptyList(),
@@ -52,14 +53,25 @@ class CalibrationEngine(
     private var countdownJob: Job? = null
     private val currentSamplesBuffer = mutableListOf<Int>()
 
-    fun startOutsideCalibration(deviceKey: String, deviceName: String, durationSec: Int = 30) {
+    fun startOutsideCalibration(
+        deviceKey: String,
+        deviceName: String,
+        targetDeviceId: BleDeviceId? = null,
+        durationSec: Int = 30
+    ) {
         countdownJob?.cancel()
         currentSamplesBuffer.clear()
+
+        val resolvedDeviceId = targetDeviceId ?: BleDeviceId(
+            primaryKey = deviceKey,
+            deviceName = deviceName
+        )
 
         _state.value = _state.value.copy(
             step = Step.RECORDING_OUTSIDE,
             targetDeviceKey = deviceKey,
             targetDeviceName = deviceName,
+            targetDeviceId = resolvedDeviceId,
             countdownSecondsRemaining = durationSec,
             totalDurationSeconds = durationSec,
             outsideSamples = emptyList(),
@@ -98,12 +110,9 @@ class CalibrationEngine(
                 ThresholdCalculator.calculate(inside = insideMetrics, outside = outsideMetrics)
             } else null
 
-            val targetDeviceId = BleDeviceId.createFromScan(
-                address = _state.value.targetDeviceKey,
-                name = _state.value.targetDeviceName,
-                manufacturerId = 0x0075,
-                manufacturerData = null,
-                serviceUuids = emptyList()
+            val targetDeviceId = _state.value.targetDeviceId ?: BleDeviceId(
+                primaryKey = _state.value.targetDeviceKey ?: "unknown",
+                deviceName = _state.value.targetDeviceName
             )
 
             val profile = calcResult?.let {

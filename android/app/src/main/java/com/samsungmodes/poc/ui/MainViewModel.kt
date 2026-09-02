@@ -337,6 +337,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (prof != null) {
             proximityEngine.updateProfile(prof)
             log("PROFILE", "Activated per-device calibration profile for: ${prof.targetDisplayName} (ENTER: ${prof.enterThresholdRssi} dBm, EXIT: ${prof.exitThresholdRssi} dBm)")
+        } else if (dev != null) {
+            val fallbackProfile = ProximityProfile.createDefault(
+                targetDeviceId = dev.deviceId,
+                targetDisplayName = dev.displayName
+            )
+            proximityEngine.updateProfile(fallbackProfile)
+            log("PROFILE", "Activated device: ${dev.displayName} (Using uncalibrated default profile)")
         }
     }
 
@@ -359,8 +366,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Phase 2 Calibration Operations ---
 
     fun startOutsideCalibration(deviceKey: String, deviceName: String, durationSec: Int = 30) {
+        val dev = _uiState.value.savedDevices[deviceKey]
         log("CALIB", "Starting STEP 1: OUTSIDE Calibration for '$deviceName' ($durationSec s)...")
-        calibrationEngine.startOutsideCalibration(deviceKey, deviceName, durationSec)
+        calibrationEngine.startOutsideCalibration(
+            deviceKey = deviceKey,
+            deviceName = deviceName,
+            targetDeviceId = dev?.deviceId,
+            durationSec = durationSec
+        )
     }
 
     fun startInsideCalibration(durationSec: Int = 30) {
@@ -373,10 +386,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         storageRepository.setActiveDeviceKey(profile.targetDeviceId.primaryKey)
         val updatedProfiles = _uiState.value.savedProfiles.toMutableMap()
         updatedProfiles[profile.targetDeviceId.primaryKey] = profile
+        val matchedDevice = _uiState.value.savedDevices[profile.targetDeviceId.primaryKey]
 
         _uiState.value = _uiState.value.copy(
             activeProximityProfile = profile,
-            savedProfiles = updatedProfiles
+            savedProfiles = updatedProfiles,
+            savedProximityDevice = matchedDevice ?: _uiState.value.savedProximityDevice
         )
         proximityEngine.updateProfile(profile)
         log("CALIB", "PER-DEVICE CALIBRATION SAVED: '${profile.profileName}' for device ${profile.targetDisplayName} [ENTER: ${profile.enterThresholdRssi} dBm, EXIT: ${profile.exitThresholdRssi} dBm]")

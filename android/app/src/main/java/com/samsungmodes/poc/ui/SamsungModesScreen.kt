@@ -1,7 +1,9 @@
 package com.samsungmodes.poc.ui
 
 import android.widget.Toast
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -122,7 +125,16 @@ fun SamsungModesScreen(
                                 AppTab.ROADMAP -> Icon(Icons.Default.List, contentDescription = null)
                             }
                         },
-                        label = { Text(tab.title, fontSize = 9.sp, fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal) }
+                        label = {
+                            Text(
+                                text = tab.title,
+                                fontSize = 9.sp,
+                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        alwaysShowLabel = false
                     )
                 }
             }
@@ -486,66 +498,119 @@ private fun LogBottomSection(
     onCopy: () -> Unit,
     onClear: () -> Unit
 ) {
+    var isExpanded by rememberSaveable { mutableStateOf(true) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(140.dp)
+            .then(
+                if (isExpanded) Modifier.height(150.dp) else Modifier.wrapContentHeight()
+            )
             .background(Color(0xFF1E1E1E))
+            .animateContentSize()
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
+        // Collapsible Header Row
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { isExpanded = !isExpanded }
+                .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "SYSTEM LOGS",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelSmall
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                    contentDescription = if (isExpanded) "Collapse Logs" else "Expand Logs",
+                    tint = Color(0xFFB0BEC5),
+                    modifier = Modifier.size(18.dp)
+                )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(
-                    onClick = onCopy,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                Text(
+                    "SYSTEM LOGS",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelSmall
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF333333)
                 ) {
-                    Text("COPY", fontSize = 10.sp, color = Color(0xFF90CAF9))
+                    Text(
+                        text = "${logs.size}",
+                        color = Color(0xFFB0BEC5),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (isExpanded) {
+                    TextButton(
+                        onClick = onCopy,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("COPY", fontSize = 10.sp, color = Color(0xFF90CAF9))
+                    }
+
+                    TextButton(
+                        onClick = onClear,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("CLEAR", fontSize = 10.sp, color = Color(0xFFEF9A9A))
+                    }
                 }
 
                 TextButton(
-                    onClick = onClear,
+                    onClick = { isExpanded = !isExpanded },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text("CLEAR", fontSize = 10.sp, color = Color(0xFFEF9A9A))
+                    Text(
+                        text = if (isExpanded) "HIDE" else "SHOW",
+                        fontSize = 10.sp,
+                        color = Color(0xFFB0BEC5),
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
 
-        HorizontalDivider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 2.dp))
+        if (isExpanded) {
+            HorizontalDivider(color = Color(0xFF333333), modifier = Modifier.padding(vertical = 2.dp))
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(logs) { entry ->
-                val logColor = when (entry.level) {
-                    "SUCCESS" -> Color(0xFF81C784)
-                    "WARN" -> Color(0xFFFFB74D)
-                    "ERROR" -> Color(0xFFE57373)
-                    "BLE" -> Color(0xFF64B5F6)
-                    "ACTION" -> Color(0xFF4FC3F7)
-                    "TEST" -> Color(0xFFBA68C8)
-                    else -> Color(0xFFE0E0E0)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(logs) { entry ->
+                    val logColor = when (entry.level) {
+                        "SUCCESS" -> Color(0xFF81C784)
+                        "WARN" -> Color(0xFFFFB74D)
+                        "ERROR" -> Color(0xFFE57373)
+                        "BLE" -> Color(0xFF64B5F6)
+                        "ACTION" -> Color(0xFF4FC3F7)
+                        "TEST" -> Color(0xFFBA68C8)
+                        else -> Color(0xFFE0E0E0)
+                    }
+                    Text(
+                        text = "[${entry.timestamp}] [${entry.level}] ${entry.message}",
+                        color = logColor,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(vertical = 0.5.dp)
+                    )
                 }
-                Text(
-                    text = "[${entry.timestamp}] [${entry.level}] ${entry.message}",
-                    color = logColor,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 14.sp,
-                    modifier = Modifier.padding(vertical = 0.5.dp)
-                )
             }
         }
     }

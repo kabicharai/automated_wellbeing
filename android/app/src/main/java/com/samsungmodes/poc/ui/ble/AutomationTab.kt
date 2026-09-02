@@ -5,11 +5,14 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -255,9 +258,15 @@ fun AutomationTab(
                             "Live Signal & Proximity Zone",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFF1E293B)
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Spacer(Modifier.width(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -281,7 +290,14 @@ fun AutomationTab(
                                     }
                                 )
                             }
-                            Text("${filteredRssi.toInt()} dBm", fontSize = 12.sp, color = Color(0xFF64748B), fontFamily = FontFamily.Monospace)
+                            Text(
+                                text = "${filteredRssi.toInt()} dBm",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
 
@@ -289,7 +305,7 @@ fun AutomationTab(
                         Text(
                             "Tracked Beacon: ${activeProfile.targetDisplayName} (Enter < ${activeProfile.enterThresholdRssi} dBm, Exit < ${activeProfile.exitThresholdRssi} dBm)",
                             fontSize = 11.sp,
-                            color = Color(0xFF64748B)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -303,17 +319,17 @@ fun AutomationTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "Automation Rules",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
                         "Multi-beacon triggers with custom entry & exit actions",
                         fontSize = 12.sp,
-                        color = Color(0xFF64748B)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -713,6 +729,9 @@ fun RuleEditDialog(
     var exitAction by remember { mutableStateOf(initialRule?.exitAction ?: AutomationExitAction.TURN_OFF) }
     var priority by remember { mutableStateOf(initialRule?.priority ?: 1) }
 
+    val scrollState = rememberScrollState()
+    val beaconScrollState = rememberScrollState()
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -726,6 +745,7 @@ fun RuleEditDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(scrollState)
                     .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -740,10 +760,18 @@ fun RuleEditDialog(
                 )
 
                 // BLE Device Selection
-                Text("Trigger Beacon:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF334155))
+                Text(
+                    "Trigger Beacon:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(beaconScrollState),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     val isAnySelected = selectedDeviceKey.isBlank() || selectedDeviceKey.equals("ANY", ignoreCase = true)
                     FilterChip(
@@ -752,13 +780,13 @@ fun RuleEditDialog(
                             selectedDeviceKey = ""
                             selectedDeviceName = "Any Beacon"
                         },
-                        label = { Text("Any Beacon", fontSize = 11.sp) },
+                        label = { Text("Any Beacon", fontSize = 11.sp, maxLines = 1, softWrap = false) },
                         leadingIcon = {
                             Icon(Icons.Default.AllInclusive, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
                     )
 
-                    savedDevices.values.take(2).forEach { dev ->
+                    savedDevices.values.forEach { dev ->
                         val isSelected = dev.deviceId.primaryKey == selectedDeviceKey
                         FilterChip(
                             selected = isSelected,
@@ -766,7 +794,7 @@ fun RuleEditDialog(
                                 selectedDeviceKey = dev.deviceId.primaryKey
                                 selectedDeviceName = dev.displayName
                             },
-                            label = { Text(dev.displayName, fontSize = 11.sp) },
+                            label = { Text(dev.displayName, fontSize = 11.sp, maxLines = 1, softWrap = false) },
                             leadingIcon = {
                                 Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
                             }
@@ -775,16 +803,14 @@ fun RuleEditDialog(
                 }
 
                 // Samsung Mode Name & UUID
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = targetModeName,
-                        onValueChange = { targetModeName = it },
-                        label = { Text("Mode Name") },
-                        placeholder = { Text("e.g. Focus / Work") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                OutlinedTextField(
+                    value = targetModeName,
+                    onValueChange = { targetModeName = it },
+                    label = { Text("Mode Name") },
+                    placeholder = { Text("e.g. Focus / Work") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 OutlinedTextField(
                     value = targetModeUuid,
@@ -795,31 +821,49 @@ fun RuleEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                HorizontalDivider(color = Color(0xFFE2E8F0))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 // Entry Action (INSIDE trigger)
-                Text("When entering proximity (INSIDE):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "When entering proximity (INSIDE):",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     AutomationEntryAction.values().forEach { action ->
                         val isSelected = entryAction == action
                         FilterChip(
                             selected = isSelected,
                             onClick = { entryAction = action },
-                            label = { Text(action.displayName, fontSize = 10.sp) },
+                            label = { Text(action.displayName, fontSize = 10.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
 
                 // Exit Action (OUTSIDE trigger)
-                Text("When leaving proximity (OUTSIDE):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "When leaving proximity (OUTSIDE):",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     AutomationExitAction.values().forEach { action ->
                         val isSelected = exitAction == action
                         FilterChip(
                             selected = isSelected,
                             onClick = { exitAction = action },
-                            label = { Text(action.displayName, fontSize = 10.sp) },
+                            label = { Text(action.displayName, fontSize = 10.sp, maxLines = 1, softWrap = false) },
                             modifier = Modifier.weight(1f)
                         )
                     }

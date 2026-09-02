@@ -67,38 +67,104 @@ fun CalibrationTab(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
+                    // Target Beacon Selector (Multi-Device Support)
+                    if (state.savedDevices.isNotEmpty()) {
+                        Text(
+                            "SELECT BEACON TO CALIBRATE:",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            state.savedDevices.values.forEach { dev ->
+                                val isSelected = (savedTarget?.deviceId?.primaryKey == dev.deviceId.primaryKey)
+                                val hasCal = state.savedProfiles.containsKey(dev.deviceId.primaryKey)
+                                val prof = state.savedProfiles[dev.deviceId.primaryKey]
+
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.selectDeviceProfile(dev.deviceId.primaryKey) },
+                                    label = {
+                                        Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                            Text(
+                                                dev.displayName,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = 11.sp
+                                            )
+                                            Text(
+                                                if (hasCal && prof != null) "Calibrated (${prof.enterThresholdRssi} / ${prof.exitThresholdRssi} dBm)" else "Uncalibrated",
+                                                fontSize = 9.sp,
+                                                color = if (hasCal) Color(0xFF2E7D32) else Color(0xFFE65100)
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (hasCal) Icons.Default.CheckCircle else Icons.Default.Info,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = if (hasCal) Color(0xFF2E7D32) else Color(0xFFE65100)
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     // Target Device Status
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = if (savedTarget != null) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    "TARGET BEACON",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (savedTarget != null) Color(0xFF2E7D32) else Color(0xFFC62828)
-                                )
-                                Text(
-                                    savedTarget?.displayName ?: "No target saved (Go to BLE Scanner tab first)",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (savedTarget != null) Color(0xFF1B5E20) else Color(0xFFB71C1C)
-                                )
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        "ACTIVE CALIBRATION TARGET",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (savedTarget != null) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                    )
+                                    Text(
+                                        savedTarget?.displayName ?: "No target saved (Go to BLE Scanner tab first)",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (savedTarget != null) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                                    )
+                                }
+                                if (savedTarget != null) {
+                                    Text(
+                                        savedTarget.formattedTarget(),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                }
                             }
-                            if (savedTarget != null) {
-                                Text(
-                                    savedTarget.formattedTarget(),
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = Color(0xFF2E7D32)
-                                )
+
+                            val activeProf = state.savedProfiles[savedTarget?.deviceId?.primaryKey]
+                            if (activeProf != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text(
+                                        "Current Saved Profile: Enter ≥ ${activeProf.enterThresholdRssi} dBm • Exit ≤ ${activeProf.exitThresholdRssi} dBm",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF2E7D32),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }

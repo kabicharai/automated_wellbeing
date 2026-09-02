@@ -15,6 +15,8 @@ import com.samsungmodes.poc.ble.model.BleProximityDevice
 import com.samsungmodes.poc.model.CurrentModeResult
 import com.samsungmodes.poc.model.ModeOperationResult
 import com.samsungmodes.poc.proximity.automation.ProximityAutomationController
+import com.samsungmodes.poc.proximity.model.AutomationRule
+import com.samsungmodes.poc.proximity.model.ProximityProfile
 import com.samsungmodes.poc.proximity.service.ProximityForegroundService
 import com.samsungmodes.poc.proximity.storage.ProximityStorageRepository
 import com.samsungmodes.poc.samsung.SamsungCapabilityDetector
@@ -78,12 +80,12 @@ data class MainUiState(
     val selectedRssiWindow: RssiTracker.HistoryWindow = RssiTracker.HistoryWindow.WINDOW_30S,
 
     // Phase 2 Calibration State & Per-Device Profiles
-    val activeProximityProfile: com.samsungmodes.poc.proximity.model.ProximityProfile? = null,
-    val savedProfiles: Map<String, com.samsungmodes.poc.proximity.model.ProximityProfile> = emptyMap(),
+    val activeProximityProfile: ProximityProfile? = null,
+    val savedProfiles: Map<String, ProximityProfile> = emptyMap(),
     val savedDevices: Map<String, BleDeviceProfile> = emptyMap(),
 
     // Phase 4 & 5 Multi-Device / Multi-Mode Automation State
-    val automationRules: List<com.samsungmodes.poc.proximity.model.AutomationRule> = emptyList(),
+    val automationRules: List<AutomationRule> = emptyList(),
     val automationState: ProximityAutomationController.AutomationState = ProximityAutomationController.AutomationState()
 )
 
